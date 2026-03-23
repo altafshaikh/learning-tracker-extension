@@ -615,17 +615,10 @@ function resetTrackingBarIdle() {
     pulse.className = 'tracking-pulse';
     pulse.classList.remove('recording', 'paused');
   }
-  var statusDot = document.getElementById('status-dot');
-  if (statusDot) {
-    statusDot.classList.add('inactive');
-    statusDot.title = 'Idle — open a page with video or use Track this page';
-    statusDot.setAttribute('aria-label', 'Not tracking');
-  }
 }
 
 function updateTrackingBarFromStatus(resp) {
   var bar = document.getElementById('tracking-bar');
-  var dot = document.getElementById('status-dot');
   var pulse = document.getElementById('tracking-pulse');
   var recLabel = document.getElementById('rec-label');
   var recText = document.getElementById('rec-text');
@@ -638,16 +631,6 @@ function updateTrackingBarFromStatus(resp) {
   }
 
   if (bar) bar.classList.add('active');
-  if (dot) {
-    dot.classList.remove('inactive');
-    if (resp.playing) {
-      dot.title = 'Recording watch time on this tab';
-      dot.setAttribute('aria-label', 'Recording');
-    } else {
-      dot.title = 'Session open — playback paused';
-      dot.setAttribute('aria-label', 'Paused');
-    }
-  }
 
   if (recLabel) recLabel.style.display = 'flex';
   if (resp.playing) {
@@ -696,12 +679,6 @@ function refreshLiveBar() {
       if (chrome.runtime.lastError) {
         resetTrackingBarIdle();
         setTrackingIdleVisible(false);
-        var sdErr = document.getElementById('status-dot');
-        if (sdErr) {
-          sdErr.classList.add('inactive');
-          sdErr.title = 'Idle — this tab does not report tracking (reload the page or open a normal site)';
-          sdErr.setAttribute('aria-label', 'Not tracking');
-        }
         return;
       }
       updateTrackingBarFromStatus(resp);
