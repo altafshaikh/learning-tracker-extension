@@ -18,30 +18,6 @@ function loadSettingsFromStorage() {
 
 loadSettingsFromStorage();
 
-document.getElementById('apply-defaults').addEventListener('click', function() {
-  fetch(chrome.runtime.getURL('config/defaults.json'))
-    .then(function(r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
-    })
-    .then(function(d) {
-      var patch = {};
-      if (d.lt_form_url) patch.lt_form_url = d.lt_form_url;
-      if (d.lt_model) patch.lt_model = d.lt_model;
-      if (d.lt_auto_submit !== undefined) patch.lt_auto_submit = !!d.lt_auto_submit;
-      if (Object.keys(patch).length === 0) {
-        return showStatus('bundled-status', 'defaults.json has no lt_form_url / lt_model / lt_auto_submit to apply', 'err');
-      }
-      chrome.storage.local.set(patch, function() {
-        showStatus('bundled-status', 'Applied from config/defaults.json', 'ok');
-        loadSettingsFromStorage();
-      });
-    })
-    .catch(function(e) {
-      showStatus('bundled-status', 'Could not load defaults.json: ' + e.message, 'err');
-    });
-});
-
 document.getElementById('save-key').addEventListener('click', function() {
   var key = document.getElementById('groq-key').value.trim();
   var model = document.getElementById('groq-model').value;

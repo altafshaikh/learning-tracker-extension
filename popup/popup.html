@@ -3,93 +3,190 @@
 <head>
   <meta charset="UTF-8"/>
   <title>Learning Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet"/>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
     :root{
       --bg:#0e0f12;--bg2:#161820;--bg3:#1d1f28;
       --border:rgba(255,255,255,0.08);--border2:rgba(255,255,255,0.14);
       --text:#eeedf0;--muted:#7c7e8a;
-      --green:#3ecf8e;--purple:#8b7cf8;--amber:#f5a623;--red:#e85d5d;
+      --green:#3ecf8e;--purple:#a78bfa;--purple-dim:rgba(139,124,248,.25);--amber:#f5a623;--red:#e85d5d;
     }
-    body{width:360px;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;overflow:hidden}
+    body{width:400px;max-height:620px;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;display:flex;flex-direction:column;overflow:hidden}
+    .hero-num,.hero-stat{font-family:'Outfit',system-ui,sans-serif;font-variant-numeric:tabular-nums}
+    .hero-num{font-size:30px;font-weight:800;letter-spacing:-.045em;line-height:1.05;margin-bottom:6px;background:linear-gradient(105deg,#f8f7fa 0%,#c4b5fd 45%,#5ee9b5 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+    @supports not (-webkit-background-clip:text){.hero-num{color:var(--text);-webkit-text-fill-color:unset;background:none}}
+    .encourage{font-size:12px;color:var(--green);font-weight:500;margin-top:2px}
 
-    /* Header */
-    .header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px 10px;border-bottom:1px solid var(--border)}
-    .brand{display:flex;align-items:center;gap:8px}
+    .header{display:flex;align-items:center;justify-content:space-between;padding:11px 14px 10px;border-bottom:1px solid var(--border);flex-shrink:0}
+    .brand{display:flex;align-items:center;gap:10px}
+    .brand-ico{width:28px;height:28px;border-radius:8px;background:linear-gradient(145deg,rgba(139,124,248,.2),rgba(62,207,142,.15));border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;color:var(--purple);flex-shrink:0}
+    .brand-ico svg{display:block}
     .dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 7px var(--green)}
     .dot.inactive{background:var(--muted);box-shadow:none}
     .brand-name{font-weight:600;font-size:14px;letter-spacing:-.02em}
     .brand-name em{color:var(--green);font-style:normal}
     .brand-sub{font-size:10px;color:var(--muted);margin-top:1px}
     .hdr-btns{display:flex;gap:5px}
-    .hbtn{width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:none;color:var(--muted);cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center}
+    .hbtn{width:28px;height:28px;border-radius:6px;border:1px solid var(--border);background:none;color:var(--muted);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center}
     .hbtn:hover{background:var(--bg3);color:var(--text)}
 
-    /* Now tracking */
-    #tracking-bar{display:none;align-items:center;gap:9px;padding:9px 14px;background:rgba(62,207,142,.07);border-bottom:1px solid rgba(62,207,142,.15);font-size:12px}
+    #tracking-bar{display:none;flex-direction:column;gap:6px;padding:10px 14px;background:rgba(62,207,142,.07);border-bottom:1px solid rgba(62,207,142,.15);font-size:12px;flex-shrink:0}
     #tracking-bar.active{display:flex}
-    .tracking-pulse{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 1.2s ease-in-out infinite;flex-shrink:0}
-    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-    #tracking-title{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--green)}
-    .stop-btn{background:none;border:1px solid rgba(62,207,142,.3);border-radius:5px;color:var(--green);font-size:11px;padding:2px 8px;cursor:pointer}
-    .stop-btn:hover{background:rgba(62,207,142,.1)}
+    .tracking-row{display:flex;align-items:flex-start;gap:8px;width:100%}
+    .tracking-pulse{width:8px;height:8px;border-radius:50%;background:var(--green);margin-top:4px;flex-shrink:0}
+    .tracking-pulse.recording{animation:pulse 1.2s ease-in-out infinite;box-shadow:0 0 8px var(--green)}
+    .tracking-pulse.paused{background:var(--amber);box-shadow:none;animation:none}
+    .tracking-main{flex:1;min-width:0}
+    .rec-label{font-size:9px;font-weight:700;letter-spacing:.12em;color:#ff6b6b;margin-bottom:2px;display:flex;align-items:center;gap:4px}
+    .rec-label .rec-dot{width:6px;height:6px;border-radius:50%;background:#ff6b6b;animation:pulse 1s ease-in-out infinite}
+    .rec-label.paused{color:var(--amber)}
+    .rec-label.paused .rec-dot{background:var(--amber);animation:none}
+    #tracking-title{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.3}
+    #tracking-bar.active #tracking-title{color:var(--green)}
+    .live-timer{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.02em;color:var(--green);margin-top:2px}
+    .live-timer.idle{font-size:12px;font-weight:500;color:var(--muted)}
+    .tracking-actions{display:flex;flex-direction:column;gap:4px;flex-shrink:0}
+    .stop-btn{background:none;border:1px solid rgba(62,207,142,.35);border-radius:5px;color:var(--green);font-size:10px;padding:3px 8px;cursor:pointer;white-space:nowrap}
+    .stop-btn:hover{background:rgba(62,207,142,.12)}
+    .stop-btn.primary{border-color:rgba(255,107,107,.5);color:#ff9a9a}
+    .track-page-btn{background:none;border:1px solid rgba(139,124,248,.45);border-radius:5px;color:var(--purple);font-size:10px;padding:3px 8px;cursor:pointer;white-space:nowrap}
+    .track-page-btn:hover{background:rgba(139,124,248,.12)}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 
-    /* Stats */
-    .stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;padding:11px 14px;border-bottom:1px solid var(--border)}
-    .stat{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:9px 10px}
-    .stat-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}
-    .stat-val{font-size:19px;font-weight:600;letter-spacing:-.03em;line-height:1}
-    .stat-val.g{color:var(--green)}.stat-val.p{color:var(--purple)}.stat-val.a{color:var(--amber)}
+    .tracking-idle{display:none;align-items:center;justify-content:space-between;gap:8px;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;font-size:11px;color:var(--muted)}
+    .tracking-idle.visible{display:flex}
+    .tracking-idle-hint{flex:1;line-height:1.35}
 
-    /* Insights */
-    .section{padding:10px 14px;border-bottom:1px solid var(--border)}
-    .section-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px}
-    .section-title{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
-    .section-btn{background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;padding:0}
-    .section-btn:hover{color:var(--text)}
-    .insight{display:flex;gap:8px;padding:7px 9px;background:var(--bg2);border:1px solid var(--border);border-radius:7px;margin-bottom:5px;font-size:12px;line-height:1.4}
+    .banner{margin:8px 14px 0;padding:8px 10px;background:rgba(245,166,35,.08);border:1px solid rgba(245,166,35,.2);border-radius:7px;font-size:11px;color:var(--amber);line-height:1.45;flex-shrink:0}
+    .banner a{color:var(--amber);cursor:pointer;text-decoration:underline}
+
+    .stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;padding:10px 14px;border-bottom:1px solid var(--border);flex-shrink:0}
+    .stat{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px 9px}
+    .stat-label{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}
+    .stat-val{font-size:17px;font-weight:600;letter-spacing:-.03em;line-height:1}
+    .stat-val.g{color:var(--green);font-family:'Outfit',system-ui,sans-serif;font-weight:700}
+    .stat-val.p{color:var(--purple)}.stat-val.a{color:var(--amber)}
+
+    .tabs{display:flex;gap:4px;padding:8px 14px 0;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--bg)}
+    .tab-btn{flex:1;padding:8px 6px;border:none;border-radius:8px 8px 0 0;background:transparent;color:var(--muted);font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;transition:background .15s,color .15s}
+    .tab-btn:hover{color:var(--text)}
+    .tab-btn.active{background:var(--bg2);color:var(--purple);box-shadow:0 1px 0 var(--bg2)}
+
+    .tab-panels{flex:1;overflow-y:auto;min-height:0}
+    .tab-panel{display:none;padding:10px 14px 12px}
+    .tab-panel.active{display:block}
+
+    .chart-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px}
+    .chart-title{font-size:15px;font-weight:700;letter-spacing:-.02em;margin-bottom:10px}
+    .range-row{display:flex;gap:4px;margin-bottom:10px}
+    .range-btn{flex:1;padding:6px 4px;border:1px solid var(--border);border-radius:20px;background:var(--bg3);color:var(--muted);font-size:10px;font-weight:600;cursor:pointer;font-family:inherit}
+    .range-btn.active{background:var(--purple-dim);color:var(--text);border-color:rgba(139,124,248,.35)}
+    .chart-metric{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px;font-size:12px}
+    .chart-metric .big{font-size:22px;font-weight:700;color:var(--text)}
+    .chart-metric .delta{color:var(--muted);font-size:11px}
+    .chart-svg-wrap{width:100%;height:120px;margin-top:4px}
+    .chart-svg-wrap svg{width:100%;height:100%;display:block}
+    .chart-mode-row{display:flex;gap:8px;margin-top:10px}
+    .mode-btn{flex:1;padding:7px;border:1px solid var(--border);border-radius:20px;background:var(--bg3);color:var(--muted);font-size:11px;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:5px}
+    .mode-btn.active{color:var(--purple);border-color:rgba(139,124,248,.4)}
+
+    .total-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;position:relative;overflow:hidden}
+    .total-card .deco{position:absolute;right:8px;bottom:4px;opacity:.14;color:var(--green);pointer-events:none}
+    .total-card .squiggle{position:absolute;right:12px;top:50%;transform:translateY(-55%);width:72px;height:48px;opacity:.18;color:#5ec4ff;pointer-events:none}
+    .total-label{font-size:11px;font-weight:600;color:var(--muted);margin-bottom:4px}
+    .total-val{margin-bottom:4px}
+    .total-meta{font-size:11px;color:var(--muted);line-height:1.5}
+    .settings-hint{margin-top:10px;font-size:10px;color:var(--muted)}
+    .settings-hint a{color:var(--purple);cursor:pointer;text-decoration:underline}
+    .progress-wrap{margin-top:10px}
+    .progress-label{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:4px}
+    .progress-track{height:10px;border-radius:5px;background:var(--bg3);overflow:hidden}
+    .progress-fill{height:100%;border-radius:5px;background:linear-gradient(90deg,var(--purple),var(--green));transition:width .35s ease;box-shadow:0 0 12px rgba(62,207,142,.25)}
+
+    .insights-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+    .insights-header h2{font-size:14px;font-weight:700}
+    .insights-badge{font-size:10px;color:var(--muted);font-weight:500}
+    .section-btn{background:none;border:none;color:var(--purple);font-size:11px;cursor:pointer;padding:0;font-family:inherit}
+    .section-btn:hover{text-decoration:underline}
+    .insight{display:flex;gap:10px;padding:9px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;margin-bottom:6px;font-size:12px;line-height:1.45}
     .insight:last-child{margin-bottom:0}
-    .insight-ico{flex-shrink:0;font-size:13px}
-    #insights-placeholder{color:var(--muted);font-size:12px;padding:4px 0}
+    .insight-ico{flex-shrink:0;width:22px;height:22px;display:flex;align-items:center;justify-content:center;color:var(--purple)}
+    #insights-placeholder{color:var(--muted);font-size:12px;padding:8px 0}
+    .ins-dash{margin-bottom:10px}
+    .ins-hero{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:14px;position:relative;overflow:hidden;margin-bottom:10px}
+    .ins-hero .squiggle{position:absolute;right:10px;top:8px;width:64px;height:40px;opacity:.2;color:var(--green);pointer-events:none}
+    .ins-hero-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:6px}
+    .ins-hero-label{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+    .ins-rank-badge{background:linear-gradient(135deg,rgba(139,124,248,.35),rgba(62,207,142,.2));border:1px solid var(--border2);border-radius:20px;padding:4px 10px;font-size:11px;font-weight:700;color:var(--text);white-space:nowrap;font-family:'Outfit',system-ui,sans-serif}
+    .ins-week-pill{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;margin-top:8px;padding:4px 8px;border-radius:8px;background:var(--bg3);border:1px solid var(--border)}
+    .ins-week-pill.up{color:var(--green);border-color:rgba(62,207,142,.25)}
+    .ins-week-pill.down{color:#ff9a9a;border-color:rgba(255,107,107,.2)}
+    .ins-week-pill.flat{color:var(--muted)}
+    .ins-subgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;font-size:11px;color:var(--muted)}
+    .ins-subgrid strong{display:block;color:var(--text);font-size:12px;margin-top:2px;font-weight:600}
+    .ins-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px}
+    .ins-card h3{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px}
+    .ins-bar-row{margin-bottom:8px}
+    .ins-bar-row:last-child{margin-bottom:0}
+    .ins-bar-top{display:flex;justify-content:space-between;align-items:baseline;font-size:11px;margin-bottom:3px;gap:6px}
+    .ins-bar-name{color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:62%}
+    .ins-bar-pct{color:var(--muted);flex-shrink:0}
+    .ins-bar-track{height:6px;border-radius:3px;background:var(--bg3);overflow:hidden}
+    .ins-bar-fill{height:100%;border-radius:3px;transition:width .4s ease}
+    .ins-ontrack{padding:10px 12px;border-radius:10px;font-size:12px;line-height:1.45;border:1px solid var(--border)}
+    .ins-ontrack.good{background:rgba(62,207,142,.08);border-color:rgba(62,207,142,.25);color:#b8f5d9}
+    .ins-ontrack.warn{background:rgba(245,166,35,.07);border-color:rgba(245,166,35,.22);color:var(--amber)}
+    .ins-records{display:grid;grid-template-columns:1fr;gap:6px}
+    .ins-record{display:flex;align-items:flex-start;gap:8px;padding:8px 10px;background:var(--bg3);border-radius:8px;border:1px solid var(--border);font-size:11px}
+    .ins-record .ir-ico{width:22px;height:22px;border-radius:6px;background:rgba(139,124,248,.2);color:var(--purple);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:12px;font-weight:800;font-family:'Outfit',sans-serif}
+    .ins-record .ir-body{min-width:0}
+    .ins-record .ir-title{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.04em}
+    .ins-record .ir-val{color:var(--text);font-weight:600;margin-top:2px;line-height:1.35}
+    .insights-ai-hdr{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px}
 
-    /* Sessions */
-    .sessions-area{max-height:160px;overflow-y:auto;padding:10px 14px}
-    .sessions-area::-webkit-scrollbar{width:3px}
+    .sessions-hdr{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+    .sessions-area{max-height:220px;overflow-y:auto;margin:0 -4px;padding:0 4px}
+    .sessions-area::-webkit-scrollbar{width:4px}
     .sessions-area::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
-    .session-row{display:flex;align-items:flex-start;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)}
+    .session-row{display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)}
     .session-row:last-child{border-bottom:none}
-    .sdot{width:6px;height:6px;border-radius:50%;margin-top:4px;flex-shrink:0}
+    .sdot{width:6px;height:6px;border-radius:50%;margin-top:5px;flex-shrink:0}
     .sdot.synced{background:var(--green)}.sdot.pending{background:var(--amber)}.sdot.enriching{background:var(--purple);animation:pulse 1.5s infinite}
+    .sess-ico{width:18px;height:18px;color:var(--purple);opacity:.85;flex-shrink:0;margin-top:2px}
     .sinfo{flex:1;min-width:0}
     .sconcept{font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .smeta{display:flex;gap:6px;margin-top:2px;font-size:11px;color:var(--muted)}
-    .sdomain{background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px}
-    .empty-sessions{text-align:center;padding:16px;color:var(--muted);font-size:12px}
-    .empty-ico{font-size:24px;margin-bottom:6px}
+    .smeta{display:flex;flex-wrap:wrap;gap:6px;margin-top:3px;font-size:11px;color:var(--muted)}
+    .sdomain{background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-size:10px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .empty-sessions{text-align:center;padding:20px 12px;color:var(--muted);font-size:12px}
+    .empty-sessions .empty-svg{width:40px;height:40px;margin:0 auto 10px;color:var(--purple);opacity:.5}
 
-    /* Footer */
-    .footer{padding:11px 14px;border-top:1px solid var(--border);display:flex;gap:7px}
-    .sync-btn{flex:1;height:36px;border-radius:8px;border:none;background:var(--green);color:#0a1f14;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;transition:all .15s}
+    .footer{padding:10px 14px;border-top:1px solid var(--border);flex-shrink:0;background:var(--bg)}
+    .sync-btn{width:100%;height:36px;border-radius:8px;border:none;background:var(--green);color:#0a1f14;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;font-family:inherit}
     .sync-btn:hover{background:#4fe09d}
     .sync-btn:disabled{opacity:.4;cursor:not-allowed}
     .sync-btn.busy{background:var(--bg3);color:var(--green);border:1px solid var(--green)}
     .badge{background:#0a1f14;color:var(--green);border-radius:4px;padding:1px 5px;font-size:11px;font-weight:700}
-
-    /* No key banner */
-    .banner{margin:9px 14px 0;padding:9px 11px;background:rgba(245,166,35,.08);border:1px solid rgba(245,166,35,.2);border-radius:7px;font-size:12px;color:var(--amber);line-height:1.5}
-    .banner a{color:var(--amber);cursor:pointer;text-decoration:underline}
   </style>
 </head>
 <body>
 
-<!-- Header -->
 <div class="header">
   <div class="brand">
-    <div class="dot" id="status-dot"></div>
+    <div class="brand-ico" title="Learning">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path d="M12 3L2 8.5l10 5.5 10-5.5L12 3z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" fill="rgba(139,124,248,.15)"/>
+        <path d="M4 10.5v5L12 20l8-4.5v-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M12 12V20" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+    </div>
     <div>
       <div class="brand-name">Learning <em>Tracker</em></div>
-      <div class="brand-sub">Powered by Groq</div>
+      <div class="brand-sub">AI Powered</div>
     </div>
+    <div class="dot inactive" id="status-dot" style="margin-left:4px"></div>
   </div>
   <div class="hdr-btns">
     <button class="hbtn" id="btn-refresh" title="Refresh">↻</button>
@@ -97,50 +194,108 @@
   </div>
 </div>
 
-<!-- Now tracking bar -->
 <div id="tracking-bar">
-  <div class="tracking-pulse"></div>
-  <div id="tracking-title">Tracking…</div>
-  <button class="stop-btn" id="btn-stop">Stop</button>
+  <div class="tracking-row">
+    <div class="tracking-pulse" id="tracking-pulse"></div>
+    <div class="tracking-main">
+      <div class="rec-label" id="rec-label" style="display:none"><span class="rec-dot"></span><span id="rec-text">RECORDING</span></div>
+      <div id="tracking-title">Open a video tab to track</div>
+      <div class="live-timer idle" id="live-timer">—</div>
+    </div>
+    <div class="tracking-actions">
+      <button type="button" class="stop-btn primary" id="btn-complete" title="Save this session now">Finish</button>
+    </div>
+  </div>
 </div>
 
-<!-- No-key banner -->
+<div class="tracking-idle" id="tracking-idle" aria-live="polite">
+  <span class="tracking-idle-hint">No video on this page — track reading time on blogs &amp; docs.</span>
+  <button type="button" class="track-page-btn" id="btn-track-page-idle">Track this page</button>
+</div>
+
 <div class="banner" id="no-key-banner" style="display:none">
-  ⚠ Add your <a id="link-settings">Groq API key</a> to enable AI enrichment &amp; insights.
+  Add an <a id="link-settings">API key in Settings</a> to enable AI enrichment and insights.
 </div>
 
-<!-- Stats -->
 <div class="stats">
   <div class="stat"><div class="stat-label">HRS TODAY</div><div class="stat-val g" id="s-hrs">0.0</div></div>
   <div class="stat"><div class="stat-label">Sessions today</div><div class="stat-val p" id="s-sess">0</div></div>
   <div class="stat"><div class="stat-label">DAY STREAK</div><div class="stat-val a" id="s-streak">0</div></div>
 </div>
 
-<!-- AI Insights -->
-<div class="section" id="insights-section">
-  <div class="section-hdr">
-    <span class="section-title">✦ Groq Analysis</span>
-    <button class="section-btn" id="btn-insights">Refresh</button>
+<nav class="tabs" role="tablist">
+  <button type="button" class="tab-btn active" data-tab="charts" role="tab" aria-selected="true">Charts</button>
+  <button type="button" class="tab-btn" data-tab="insights" role="tab" aria-selected="false">AI Insights</button>
+  <button type="button" class="tab-btn" data-tab="sessions" role="tab" aria-selected="false">Sessions</button>
+</nav>
+
+<div class="tab-panels">
+  <div id="panel-charts" class="tab-panel active" role="tabpanel">
+    <div class="chart-card">
+      <div class="chart-title">Watch time</div>
+      <div class="range-row" id="chart-range-btns">
+        <button type="button" class="range-btn active" data-range="day">Day</button>
+        <button type="button" class="range-btn" data-range="week">Week</button>
+        <button type="button" class="range-btn" data-range="month">Month</button>
+        <button type="button" class="range-btn" data-range="year">Year</button>
+      </div>
+      <div class="chart-metric">
+        <span class="big" id="chart-period-total">0s</span>
+        <span class="delta" id="chart-delta">—</span>
+      </div>
+      <div class="chart-svg-wrap" id="chart-svg-wrap"></div>
+      <div class="chart-mode-row">
+        <button type="button" class="mode-btn active" data-mode="line" id="mode-line">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 18L9 10l4 4 8-9"/></svg>
+          Trend
+        </button>
+        <button type="button" class="mode-btn" data-mode="pie" id="mode-pie">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 12V3a9 9 0 109 9h-9z"/></svg>
+          By topic
+        </button>
+      </div>
+    </div>
+    <div class="total-card">
+      <svg class="squiggle" viewBox="0 0 120 80" fill="none" aria-hidden="true"><path d="M8 65 C 35 20, 55 75, 85 35 S 105 15, 112 8" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+      <svg class="deco" width="72" height="72" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 19l4-6 4 3 6-8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div class="total-label">Total learned</div>
+      <div class="total-val hero-num" id="total-learned-display">0s</div>
+      <div class="encourage" id="total-encourage"></div>
+      <div class="total-meta" id="total-meta-start">Extension time plus any baseline you set in Settings.</div>
+      <div class="progress-wrap">
+        <div class="progress-label"><span>Progress to target</span><span id="progress-pct">0%</span></div>
+        <div class="progress-track"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
+      </div>
+      <div class="settings-hint">Set <a id="link-learning-goals">baseline &amp; target in Settings</a>.</div>
+    </div>
   </div>
-  <div id="insights-list">
-    <div id="insights-placeholder">Insights generate after a few sessions are captured.</div>
+
+  <div id="panel-insights" class="tab-panel" role="tabpanel">
+    <div class="insights-header">
+      <div>
+        <h2>Insights</h2>
+        <div class="insights-badge">Progress · domains · AI tips</div>
+      </div>
+      <button type="button" class="section-btn" id="btn-insights">Refresh AI</button>
+    </div>
+    <div id="insights-dashboard" class="ins-dash"></div>
+    <div class="insights-ai-hdr">AI suggestions</div>
+    <div id="insights-list">
+      <div id="insights-placeholder">Enriched sessions unlock short AI tips below. Your stats above work from all tracked time.</div>
+    </div>
+  </div>
+
+  <div id="panel-sessions" class="tab-panel" role="tabpanel">
+    <div class="sessions-hdr">Recent sessions</div>
+    <div class="sessions-area" id="sessions-list">
+      <div class="empty-sessions">
+        <div class="empty-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><path d="M8 7h8M8 11h6"/></svg></div>
+        Play a video to start tracking.
+      </div>
+    </div>
   </div>
 </div>
 
-<!-- Recent sessions -->
-<div class="section" style="border-bottom:none;padding-bottom:4px">
-  <div class="section-hdr">
-    <span class="section-title">Recent Sessions</span>
-  </div>
-</div>
-<div class="sessions-area" id="sessions-list">
-  <div class="empty-sessions">
-    <div class="empty-ico">▶</div>
-    Play any video to start tracking your learning journey.
-  </div>
-</div>
-
-<!-- Footer -->
 <div class="footer">
   <button class="sync-btn" id="btn-sync" disabled>
     <span>⟳ Sync Learning</span>

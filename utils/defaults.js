@@ -1,6 +1,6 @@
 // Bundled config/defaults.json — single source for form URL / model / prefs (not secrets).
 
-var KEYS = ['lt_form_url', 'lt_model', 'lt_auto_submit'];
+var KEYS = ['lt_form_url', 'lt_model', 'lt_auto_submit', 'lt_form_email', 'lt_learning_target_hours', 'lt_learned_baseline_ms'];
 
 export async function fetchBundledDefaults() {
   var url = chrome.runtime.getURL('config/defaults.json');

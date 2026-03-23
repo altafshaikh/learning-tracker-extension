@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Learning Tracker",
   "version": "1.0.0",
-  "description": "Track learning sessions across the web. AI insights via Groq. Sync to Google Forms.",
+  "description": "Track learning sessions across the web. AI-powered insights. Sync to Google Forms.",
   "permissions": ["storage", "tabs", "scripting", "activeTab", "alarms"],
   "host_permissions": ["https://*/*", "http://*/*"],
   "background": {

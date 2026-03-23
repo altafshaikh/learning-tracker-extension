@@ -65,7 +65,7 @@ export async function enrichSession(apiKey, session, model) {
 
     // Validate domain
     if (!DOMAINS.includes(parsed.domain)) {
-      parsed.domain = inferDomain(session.title + ' ' + session.url);
+      parsed.domain = inferDomain((session.title || '') + ' ' + (session.url || ''));
     }
     // Ensure hours is a number
     if (!parsed.hours || isNaN(parsed.hours)) {
@@ -84,7 +84,7 @@ export async function enrichSession(apiKey, session, model) {
     console.error('[Groq] enrichSession failed:', e.message);
     return {
       concept: session.title,
-      domain: inferDomain(session.title + ' ' + session.url),
+      domain: inferDomain((session.title || '') + ' ' + (session.url || '')),
       skillset: '',
       hours: Math.round((session.durationMs || 0) / 36000) / 100,
       epicLink: '',
@@ -93,7 +93,11 @@ export async function enrichSession(apiKey, session, model) {
   }
 }
 
-export async function generateInsights(apiKey, sessions, model) {
+/**
+ * @param {object} [ctx] — targetHours, totalLearnedMs, domainSpreadText
+ */
+export async function generateInsights(apiKey, sessions, model, ctx) {
+  ctx = ctx || {};
   var recent = sessions
     .filter(function(s) { return s.enriched; })
     .slice(-20)
@@ -104,13 +108,27 @@ export async function generateInsights(apiKey, sessions, model) {
 
   if (!recent) return [];
 
-  var prompt = 'You are a personal learning coach. Give 3 sharp, specific insights.\n\n' +
-    'Recent sessions:\n' + recent + '\n\n' +
-    'Return ONLY valid JSON:\n' +
+  var targetH = ctx.targetHours != null ? Number(ctx.targetHours) : 40;
+  if (isNaN(targetH) || targetH <= 0) targetH = 40;
+  var totalH = (Number(ctx.totalLearnedMs) || 0) / 3600000;
+  var spread = ctx.domainSpreadText || '(no domain split yet)';
+  var yearProgress = ctx.yearProgressPct != null ? ctx.yearProgressPct : 0;
+
+  var prompt = 'You are a personal learning coach. The learner has a TIME TARGET and TOTAL LEARNED (includes pre-extension baseline + all tracked sessions).\n\n' +
+    'LEARNING TARGET: ' + targetH + ' hours (lifetime or annual goal — treat as primary goal).\n' +
+    'TOTAL LEARNED SO FAR: ' + totalH.toFixed(2) + ' hours.\n' +
+    'CALENDAR YEAR ELAPSED (approx): ' + yearProgress + '%.\n' +
+    'DOMAIN TIME (last ~30 days, minutes per domain — use for balance advice):\n' + spread + '\n\n' +
+    'Recent enriched sessions:\n' + recent + '\n\n' +
+    'Return ONLY valid JSON with exactly 5 items in "insights". Each text max 14 words.\n' +
+    'Include: (1) progress vs target, (2) domain spread / imbalance, (3) on-track vs pace needed, (4) one gap, (5) one actionable suggestion.\n' +
+    'Types must be one of: progress, gap, suggestion, streak, domain, ontrack\n' +
     '{"insights":[' +
-    '{"type":"progress|gap|suggestion|streak","text":"max 12 words"},' +
-    '{"type":"progress|gap|suggestion|streak","text":"max 12 words"},' +
-    '{"type":"progress|gap|suggestion|streak","text":"max 12 words"}' +
+    '{"type":"progress","text":"..."},' +
+    '{"type":"domain","text":"..."},' +
+    '{"type":"ontrack","text":"..."},' +
+    '{"type":"gap","text":"..."},' +
+    '{"type":"suggestion","text":"..."}' +
     ']}';
 
   try {
@@ -121,8 +139,8 @@ export async function generateInsights(apiKey, sessions, model) {
   }
 }
 
-function inferDomain(text) {
-  text = text.toLowerCase();
+export function inferDomain(text) {
+  text = String(text || '').toLowerCase();
   if (/react|vue|angular|python|js|typescript|aws|docker|git|api|code|dev|cloud|sql|linux/.test(text))
     return 'Technology and Development Practices';
   if (/leadership|management|strategy|business|product|agile|scrum|okr|roadmap/.test(text))

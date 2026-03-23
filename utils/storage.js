@@ -35,7 +35,7 @@ export async function updateSession(id, patch) {
 }
 
 export async function getSettings() {
-  var keys = ['lt_groq_key', 'lt_model', 'lt_form_url', 'lt_auto_submit'];
+  var keys = ['lt_groq_key', 'lt_model', 'lt_form_url', 'lt_auto_submit', 'lt_form_email'];
   return new Promise(function(resolve) {
     chrome.storage.local.get(keys, resolve);
   });

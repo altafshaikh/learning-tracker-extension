@@ -1,7 +1,11 @@
-// content/form-filler.js — fills Google Form fields via synthetic React events
+// content/form-filler.js — fills Google Form fields; handles “form updated” dialogs & required checkboxes
 
-(function() {
+(function () {
   'use strict';
+
+  function delay(ms) {
+    return new Promise(function (r) { setTimeout(r, ms); });
+  }
 
   function setNative(el, value) {
     var proto = el.tagName === 'TEXTAREA'
@@ -14,17 +18,101 @@
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
-  var delay = function(ms) { return new Promise(function(r) { setTimeout(r, ms); }); };
+  function getCheckboxContextText(el) {
+    var aria = (el.getAttribute && el.getAttribute('aria-label')) || '';
+    if (aria) return aria;
+    var id = el.id;
+    if (id && typeof CSS !== 'undefined' && CSS.escape) {
+      var lab = document.querySelector('label[for="' + CSS.escape(id) + '"]');
+      if (lab) return lab.textContent;
+    }
+    var l = el.closest('label');
+    if (l) return l.textContent;
+    var row = el.closest('[data-params], .freebirdFormviewerViewItemsItemItem, [role="listitem"], .Qr7Oae');
+    return (row || el.parentElement || el).textContent || '';
+  }
+
+  function isChecked(el) {
+    if (el.tagName === 'INPUT' && el.type === 'checkbox') return !!el.checked;
+    if (el.getAttribute && el.getAttribute('role') === 'checkbox') {
+      return el.getAttribute('aria-checked') === 'true';
+    }
+    return false;
+  }
+
+  function clickCheckbox(el) {
+    el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    el.click();
+  }
+
+  /**
+   * “Send me a copy of my responses” + “Record … email … included with my response”
+   */
+  async function ensureRequiredCheckboxes(data) {
+    var emailNeedle = (data.formEmail || '').toLowerCase().trim();
+    var selectors = 'input[type="checkbox"], [role="checkbox"]';
+    var list = document.querySelectorAll(selectors);
+    for (var i = 0; i < list.length; i++) {
+      var cb = list[i];
+      var text = getCheckboxContextText(cb).toLowerCase();
+      var wantCopy = /send me a copy|copy of my responses/i.test(text);
+      var wantRecord =
+        /record\s+.+\s+as the email to be included|included with my response/i.test(text) ||
+        (/record/.test(text) && /email/.test(text) && /included/.test(text));
+      if (emailNeedle && text.indexOf(emailNeedle) !== -1 && /record|email|included/.test(text)) {
+        wantRecord = true;
+      }
+      if (!wantCopy && !wantRecord) continue;
+      if (isChecked(cb)) continue;
+      clickCheckbox(cb);
+      await delay(220);
+    }
+  }
+
+  /**
+   * Google sometimes shows a dialog after the form is updated (“Save changes”, etc.).
+   */
+  async function dismissBlockingDialogs(maxMs) {
+    var deadline = Date.now() + (maxMs || 12000);
+    while (Date.now() < deadline) {
+      var dialogs = document.querySelectorAll('[role="dialog"], [aria-modal="true"]');
+      var clicked = false;
+      for (var d = 0; d < dialogs.length; d++) {
+        var dialog = dialogs[d];
+        var buttons = dialog.querySelectorAll('button, [role="button"], span[jsname], div[role="button"]');
+        for (var b = 0; b < buttons.length; b++) {
+          var btn = buttons[b];
+          var t = (btn.textContent || '').trim().toLowerCase();
+          if (!t || t.length > 120) continue;
+          if (
+            t === 'save' || t === 'ok' || t === 'got it' || t === 'continue' ||
+            t.indexOf('save') === 0 || t === 'save changes' || t === 'reload' ||
+            t === 'update' || /^(view|show)\s/.test(t)
+          ) {
+            btn.click();
+            clicked = true;
+            await delay(450);
+            break;
+          }
+        }
+      }
+      if (!clicked && dialogs.length === 0) await delay(280);
+      else if (!clicked) await delay(200);
+    }
+  }
 
   async function fillByQuestion(labelFragment, value) {
-    // Google Forms: question titles are in various heading elements
     var allText = document.querySelectorAll('[data-params] span, .freebirdFormviewerComponentsQuestionBaseTitle, [role="heading"]');
-    for (var el of allText) {
-      if (el.textContent.toLowerCase().includes(labelFragment.toLowerCase())) {
+    var i;
+    var el;
+    for (i = 0; i < allText.length; i++) {
+      el = allText[i];
+      if (el.textContent.toLowerCase().indexOf(labelFragment.toLowerCase()) !== -1) {
         var container = el.closest('[data-params]') ||
-                        el.closest('.freebirdFormviewerViewItemsItemItem') ||
-                        el.closest('[jsmodel]') ||
-                        el.parentElement;
+          el.closest('.freebirdFormviewerViewItemsItemItem') ||
+          el.closest('[jsmodel]') ||
+          el.parentElement;
         if (!container) continue;
         var input = container.querySelector('input[type="text"], textarea');
         if (input) {
@@ -36,11 +124,11 @@
         }
       }
     }
-    // Fallback: aria-label match
     var inputs = document.querySelectorAll('input[type="text"], textarea');
-    for (var inp of inputs) {
+    for (i = 0; i < inputs.length; i++) {
+      var inp = inputs[i];
       var lbl = (inp.getAttribute('aria-label') || '').toLowerCase();
-      if (lbl.includes(labelFragment.toLowerCase())) {
+      if (lbl.indexOf(labelFragment.toLowerCase()) !== -1) {
         inp.focus();
         await delay(80);
         setNative(inp, value);
@@ -53,36 +141,37 @@
   }
 
   async function fillDate(isoDate) {
-    // isoDate = "YYYY-MM-DD"
-    var parts = isoDate.split('-'); // [YYYY, MM, DD]
-    // Google Forms date fields: three number inputs in order DD / MM / YYYY
+    var parts = isoDate.split('-');
     var nums = document.querySelectorAll('input[type="number"]');
     if (nums.length >= 3) {
-      setNative(nums[0], parts[2]); await delay(100); // Day
-      setNative(nums[1], parts[1]); await delay(100); // Month
-      setNative(nums[2], parts[0]); await delay(100); // Year
+      setNative(nums[0], parts[2]); await delay(100);
+      setNative(nums[1], parts[1]); await delay(100);
+      setNative(nums[2], parts[0]); await delay(100);
       return true;
     }
-    // Single date input
     var dateInput = document.querySelector('input[type="date"]');
-    if (dateInput) { setNative(dateInput, isoDate); return true; }
+    if (dateInput) {
+      setNative(dateInput, isoDate);
+      return true;
+    }
     return false;
   }
 
   async function clickRadio(domainText) {
-    // Google Forms radio options
     var candidates = document.querySelectorAll('[role="radio"], [data-value]');
-    for (var el of candidates) {
+    var el;
+    for (var i = 0; i < candidates.length; i++) {
+      el = candidates[i];
       if (el.textContent.trim() === domainText ||
-          (el.getAttribute('data-value') || '') === domainText) {
+        (el.getAttribute('data-value') || '') === domainText) {
         el.click();
         await delay(200);
         return true;
       }
     }
-    // Partial match fallback
-    for (var el of candidates) {
-      if (el.textContent.toLowerCase().includes(domainText.toLowerCase().slice(0, 15))) {
+    for (i = 0; i < candidates.length; i++) {
+      el = candidates[i];
+      if (el.textContent.toLowerCase().indexOf(domainText.toLowerCase().slice(0, 15)) !== -1) {
         el.click();
         await delay(200);
         return true;
@@ -92,47 +181,58 @@
     return false;
   }
 
+  async function clickSubmit() {
+    var submitBtn = document.querySelector('[role="button"][aria-label*="Submit" i]');
+    if (!submitBtn) {
+      var all = document.querySelectorAll('[role="button"]');
+      for (var i = 0; i < all.length; i++) {
+        if (/submit/i.test(all[i].textContent || '')) {
+          submitBtn = all[i];
+          break;
+        }
+      }
+    }
+    if (submitBtn) {
+      submitBtn.click();
+      console.log('[LT Form] Submitted');
+      return true;
+    }
+    return false;
+  }
+
   async function fillForm(data) {
     console.log('[LT Form] Filling with:', data);
 
-    // 1. Email checkbox (pre-populate logged-in email)
-    var emailCb = document.querySelector('input[type="checkbox"]');
-    if (emailCb && !emailCb.checked) { emailCb.click(); await delay(200); }
+    await dismissBlockingDialogs(4000);
+    await delay(400);
+    await ensureRequiredCheckboxes(data);
 
-    // 2. Concept
     await fillByQuestion('concept', data.concept || '');
-    // 3. Hours
     await fillByQuestion('hours', String(data.hours || ''));
-    // 4. Date
     await fillDate(data.date || new Date().toISOString().split('T')[0]);
-    // 5. Domain radio
     if (data.domain) await clickRadio(data.domain);
-    // 6. Source URL
     await fillByQuestion('source', data.sourceUrl || '');
-    // 7. Skill set
     if (data.skillset) await fillByQuestion('skill', data.skillset);
-    // 8. Epic link
     if (data.epicLink) await fillByQuestion('epic', data.epicLink);
+
+    await ensureRequiredCheckboxes(data);
 
     await delay(400);
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
 
     if (data.autoSubmit) {
-      await delay(800);
-      var submitBtn = document.querySelector('[role="button"][aria-label*="Submit" i]') ||
-                      Array.from(document.querySelectorAll('[role="button"]'))
-                           .find(function(b) { return /submit/i.test(b.textContent); });
-      if (submitBtn) {
-        submitBtn.click();
-        console.log('[LT Form] Submitted!');
-      }
+      await delay(900);
+      await dismissBlockingDialogs(2500);
+      await clickSubmit();
+      await delay(1200);
+      await dismissBlockingDialogs(10000);
     }
   }
 
-  // Load pending form data and fill
-  chrome.storage.local.get(['lt_pending_form'], function(r) {
-    if (r.lt_pending_form) {
-      fillForm(r.lt_pending_form);
-    }
+  chrome.storage.local.get(['lt_pending_form'], function (r) {
+    if (!r.lt_pending_form) return;
+    fillForm(r.lt_pending_form).catch(function (e) {
+      console.error('[LT Form]', e);
+    });
   });
 })();

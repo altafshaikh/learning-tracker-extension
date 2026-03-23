@@ -1,5 +1,8 @@
 {
   "lt_form_url": "https://docs.google.com/forms/d/e/YOUR_FORM_ID/viewform",
+  "lt_form_email": "you@company.com",
   "lt_model": "llama-3.3-70b-versatile",
-  "lt_auto_submit": false
+  "lt_auto_submit": false,
+  "lt_learning_target_hours": 40,
+  "lt_learned_baseline_ms": 0
 }
