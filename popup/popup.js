@@ -18,6 +18,9 @@ var INSIGHT_SVG = {
 
 var SESS_ICO = '<svg class="sess-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><path d="M8 7h8M8 11h5"/></svg>';
 
+var SESS_SYNC_ARROW = '<svg class="sess-sync-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36M20.49 15a9 9 0 01-14.85 3.36"/></svg>';
+var SESS_SYNC_CHECK = '<svg class="sess-sync-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>';
+
 function msg(type, extra) {
   return new Promise(function(resolve) {
     chrome.runtime.sendMessage(Object.assign({ type: type }, extra || {}), function(r) {
@@ -138,6 +141,10 @@ function escHtml(s) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/"/g, '&quot;');
+}
+
+function escAttr(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 }
 
 function compareLastTwoWeeks(sessions) {
@@ -399,7 +406,33 @@ function renderSessions(sessions) {
     var concept = e.concept || s.title || 'Unknown';
     var domain = e.domain || '';
     var dotCls = s.synced ? 'synced' : (s.enriched ? 'pending' : 'enriching');
+    var syncBtn;
+    if (!s.enriched) {
+      syncBtn =
+        '<div class="sess-sync-wrap"><button type="button" class="sess-sync-btn" disabled data-session-id="' +
+        escAttr(s.id) + '" title="Wait for AI enrichment before syncing">' + SESS_SYNC_ARROW + '</button></div>';
+    } else if (s.synced) {
+      syncBtn =
+        '<div class="sess-sync-wrap"><button type="button" class="sess-sync-btn synced" data-session-id="' +
+        escAttr(s.id) + '" data-synced="1" title="Synced to form — click to re-sync">' + SESS_SYNC_CHECK + '</button></div>';
+    } else {
+      syncBtn =
+        '<div class="sess-sync-wrap"><button type="button" class="sess-sync-btn" data-session-id="' +
+        escAttr(s.id) + '" data-synced="0" title="Send this session to your Google Form">' + SESS_SYNC_ARROW + '</button></div>';
+    }
     var dur = s.durationMs ? fmtHours(s.durationMs) : '';
+    var pages = Array.isArray(s.exploredPages) ? s.exploredPages : [];
+    var np = pages.length;
+    var exploreMeta = '';
+    if (np > 1) {
+      var tip = pages.slice(0, 15).map(function(p, i) {
+        return (i + 1) + '. ' + String(p.title || 'Page').slice(0, 55);
+      }).join(' · ');
+      exploreMeta =
+        '<span class="sdomain" title="' + escHtml(tip).replace(/"/g, '&quot;') + '">' + np + ' pages</span>';
+    } else if (s.manualReading) {
+      exploreMeta = '<span class="sdomain" title="Tracked with Track this page">Reading</span>';
+    }
     return '<div class="session-row">' +
       '<div class="sdot ' + dotCls + '"></div>' +
       SESS_ICO +
@@ -407,11 +440,13 @@ function renderSessions(sessions) {
         '<div class="sconcept" title="' + concept.replace(/"/g, '&quot;') + '">' + concept + '</div>' +
         '<div class="smeta">' +
           (domain ? '<span class="sdomain" title="' + domain.replace(/"/g, '&quot;') + '">' + domain + '</span>' : '') +
+          exploreMeta +
           (dur ? '<span title="Watch time">' + dur + '</span>' : '') +
           '<span title="' + (fmtAbsStart(s.startTime) || 'When recorded') + '">' + timeAgo(s.startTime) +
           (fmtAbsStart(s.startTime) ? ' · ' + fmtAbsStart(s.startTime) : '') + '</span>' +
         '</div>' +
       '</div>' +
+      syncBtn +
     '</div>';
   }).join('');
 }
@@ -557,6 +592,7 @@ function setSyncButton(count) {
     }
   } else {
     btn.disabled = true;
+    btn.classList.remove('busy');
     if (span) span.textContent = 'All synced ✓';
     if (badge) badge.style.display = 'none';
   }
@@ -579,6 +615,12 @@ function resetTrackingBarIdle() {
     pulse.className = 'tracking-pulse';
     pulse.classList.remove('recording', 'paused');
   }
+  var statusDot = document.getElementById('status-dot');
+  if (statusDot) {
+    statusDot.classList.add('inactive');
+    statusDot.title = 'Idle — open a page with video or use Track this page';
+    statusDot.setAttribute('aria-label', 'Not tracking');
+  }
 }
 
 function updateTrackingBarFromStatus(resp) {
@@ -592,12 +634,20 @@ function updateTrackingBarFromStatus(resp) {
 
   if (!resp || (!resp.sessionActive && !resp.playing)) {
     resetTrackingBarIdle();
-    if (dot) dot.classList.add('inactive');
     return;
   }
 
   if (bar) bar.classList.add('active');
-  if (dot) dot.classList.remove('inactive');
+  if (dot) {
+    dot.classList.remove('inactive');
+    if (resp.playing) {
+      dot.title = 'Recording watch time on this tab';
+      dot.setAttribute('aria-label', 'Recording');
+    } else {
+      dot.title = 'Session open — playback paused';
+      dot.setAttribute('aria-label', 'Paused');
+    }
+  }
 
   if (recLabel) recLabel.style.display = 'flex';
   if (resp.playing) {
@@ -610,7 +660,13 @@ function updateTrackingBarFromStatus(resp) {
     if (pulse) pulse.className = 'tracking-pulse paused';
   }
 
-  if (titleEl) titleEl.textContent = resp.title || 'Learning…';
+  if (titleEl) {
+    var t = resp.title || 'Learning…';
+    if (resp.manualReading && resp.pagesExplored > 1) {
+      t += ' · ' + resp.pagesExplored + ' pages';
+    }
+    titleEl.textContent = t;
+  }
   if (timerEl) {
     timerEl.textContent = fmtLive(resp.elapsedMs || 0);
     timerEl.classList.remove('idle');
@@ -640,7 +696,12 @@ function refreshLiveBar() {
       if (chrome.runtime.lastError) {
         resetTrackingBarIdle();
         setTrackingIdleVisible(false);
-        document.getElementById('status-dot').classList.add('inactive');
+        var sdErr = document.getElementById('status-dot');
+        if (sdErr) {
+          sdErr.classList.add('inactive');
+          sdErr.title = 'Idle — this tab does not report tracking (reload the page or open a normal site)';
+          sdErr.setAttribute('aria-label', 'Not tracking');
+        }
         return;
       }
       updateTrackingBarFromStatus(resp);
@@ -815,26 +876,63 @@ document.getElementById('btn-sync').addEventListener('click', function() {
   btn.disabled = true;
   btn.classList.add('busy');
   var span0 = btn.querySelector('span');
-  if (span0) span0.textContent = 'Opening form…';
+  if (span0) span0.textContent = 'Syncing one at a time…';
   var sb = document.getElementById('sync-badge');
   if (sb) sb.style.display = 'none';
 
   chrome.storage.local.get(['lt_auto_submit'], function(r) {
     msg('LT_SYNC_ALL', { autoSubmit: !!r.lt_auto_submit }).then(function(result) {
       var sp = btn.querySelector('span');
-      if (result.ok) {
-        if (sp) sp.textContent = 'Synced ' + (result.synced || 0) + ' ✓';
-        setTimeout(load, 1500);
-      } else if (result.reason === 'no_form_url') {
+      var tot = result.total != null ? result.total : 0;
+      var done = result.synced != null ? result.synced : 0;
+      if (result.reason === 'no_form_url') {
         if (sp) sp.textContent = 'Set Form URL first!';
         btn.classList.remove('busy');
         btn.disabled = false;
         setTimeout(function() { chrome.runtime.openOptionsPage(); }, 1000);
-      } else {
-        if (sp) sp.textContent = 'Error — retry';
+        return;
+      }
+      if (result.ok && tot >= 0) {
+        if (sp) sp.textContent = 'Synced ' + done + '/' + (tot || done) + ' ✓';
+        setTimeout(load, 1200);
+        return;
+      }
+      if (done > 0) {
+        if (sp) sp.textContent = 'Stopped at ' + done + '/' + tot + (result.reason ? ' (' + result.reason + ')' : '');
         btn.classList.remove('busy');
         btn.disabled = false;
+        setTimeout(load, 1200);
+        return;
       }
+      if (sp) sp.textContent = 'Error — retry' + (result.reason ? ' (' + result.reason + ')' : '');
+      btn.classList.remove('busy');
+      btn.disabled = false;
+    });
+  });
+});
+
+var singleSessionSyncBusy = false;
+document.getElementById('sessions-list').addEventListener('click', function(ev) {
+  var syncB = ev.target.closest('.sess-sync-btn');
+  if (!syncB || syncB.disabled || singleSessionSyncBusy) return;
+  var sid = syncB.getAttribute('data-session-id');
+  if (!sid) return;
+  var isResync = syncB.getAttribute('data-synced') === '1';
+  singleSessionSyncBusy = true;
+  syncB.classList.add('busy');
+  chrome.storage.local.get(['lt_auto_submit'], function(r) {
+    msg('LT_SYNC_SESSION', {
+      sessionId: sid,
+      autoSubmit: !!r.lt_auto_submit,
+      forceResync: isResync
+    }).then(function(res) {
+      singleSessionSyncBusy = false;
+      syncB.classList.remove('busy');
+      load();
+      if (res && res.reason === 'no_form_url') chrome.runtime.openOptionsPage();
+    }).catch(function() {
+      singleSessionSyncBusy = false;
+      syncB.classList.remove('busy');
     });
   });
 });
@@ -842,12 +940,10 @@ document.getElementById('btn-sync').addEventListener('click', function() {
 document.getElementById('btn-complete').addEventListener('click', function() {
   chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
     if (!tabs[0]) return;
-    chrome.tabs.sendMessage(tabs[0].id, { type: 'LT_SESSION_COMPLETE' }, { frameId: 0 }, function() {
+    chrome.tabs.sendMessage(tabs[0].id, { type: 'LT_SESSION_COMPLETE' }, { frameId: 0 }, function(resp) {
       if (chrome.runtime.lastError) return;
-      setTimeout(function() {
-        refreshLiveBar();
-        load();
-      }, 400);
+      refreshLiveBar();
+      load();
     });
   });
 });
@@ -869,5 +965,10 @@ function sendStartManualRead() {
 }
 
 document.getElementById('btn-track-page-idle').addEventListener('click', sendStartManualRead);
+
+chrome.storage.onChanged.addListener(function(changes, areaName) {
+  if (areaName !== 'local' || !changes.lt_sessions) return;
+  load();
+});
 
 load();

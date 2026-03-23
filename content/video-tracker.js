@@ -87,46 +87,137 @@
     }
   }
 
-  /** Save session (if long enough) and clear. */
-  function endSession(reason) {
+  function buildManualSnapshot() {
+    if (!session || !session.manual) return null;
+    return {
+      id: session.id,
+      title: session.title,
+      url: session.url,
+      startTime: session.startTime,
+      totalPlayMs: session.totalPlayMs,
+      exploredPages: session.exploredPages ? session.exploredPages.slice() : [],
+      origin: session.origin
+    };
+  }
+
+  function restoreManualFromSnapshot(snap) {
+    if (!snap) return;
+    stopManualTick();
+    session = {
+      id: snap.id,
+      title: snap.title,
+      url: snap.url,
+      startTime: snap.startTime,
+      totalPlayMs: Number(snap.totalPlayMs) || 0,
+      segmentStart: null,
+      manual: true,
+      origin: snap.origin,
+      ytVideoId: '',
+      exploredPages: Array.isArray(snap.exploredPages) ? snap.exploredPages.slice() : []
+    };
+    lastState = 'playing';
+    manualTick = setInterval(function () {
+      if (!session || !session.manual) return;
+      if (document.hidden) return;
+      session.totalPlayMs += 1000;
+    }, 1000);
+    console.log('[LT] Manual session resumed (paused learning continues)');
+  }
+
+  function tryResumeManualAfterLoad() {
+    if (session || isYouTube()) return;
+    try {
+      chrome.runtime.sendMessage(
+        { type: 'LT_MANUAL_TRY_RESUME', origin: location.origin },
+        function (resp) {
+          if (chrome.runtime.lastError || !resp || !resp.ok || !resp.snapshot) return;
+          restoreManualFromSnapshot(resp.snapshot);
+          try {
+            chrome.runtime.sendMessage({ type: 'LT_MANUAL_CLEAR_STASH' }, function () {});
+          } catch (e2) {}
+        }
+      );
+    } catch (e) {}
+  }
+
+  /** Append current URL/title when user navigates during a manual (non-video) session. */
+  function recordExploredPage() {
+    if (!session || !session.manual || !session.exploredPages) return;
+    var href = window.location.href;
+    var title = getTitle() || '';
+    var pages = session.exploredPages;
+    var last = pages[pages.length - 1];
+    if (last && last.url === href) return;
+    pages.push({ url: href, title: title, t: Date.now() });
+    console.log('[LT] Manual: page', pages.length, title.slice(0, 50));
+  }
+
+  /**
+   * Save session (if long enough) and clear.
+   * @param {function} [done] — called after background persists (or immediately if nothing to save)
+   */
+  function endSession(reason, done) {
+    done = typeof done === 'function' ? done : function () {};
+
     if (lastState === 'playing') accumulateActiveSegment();
     lastState = 'idle';
     clearTimeout(titleRefreshTimer);
     stopManualTick();
 
-    if (!session) return;
-
-    if (session.totalPlayMs > 30000) {
-      var payload = {
-        id: session.id,
-        title: session.title,
-        url: session.url,
-        startTime: session.startTime,
-        endTime: Date.now(),
-        durationMs: session.totalPlayMs
-      };
-      try { chrome.runtime.sendMessage({ type: 'LT_SESSION_END', session: payload }); } catch (e) {}
-      console.log('[LT] Saved:', Math.round(session.totalPlayMs / 1000) + 's', session.title, reason);
-    } else {
-      console.log('[LT] Discarded short session:', reason);
+    if (!session) {
+      done({ ok: false, reason: 'no_session' });
+      return;
     }
 
+    var cur = session;
     session = null;
+
+    if (cur.totalPlayMs > 30000) {
+      var payload = {
+        id: cur.id,
+        title: cur.title,
+        url: cur.url,
+        startTime: cur.startTime,
+        endTime: Date.now(),
+        durationMs: cur.totalPlayMs,
+        manualReading: !!cur.manual,
+        exploredPages: cur.manual && cur.exploredPages ? cur.exploredPages : []
+      };
+      try {
+        chrome.runtime.sendMessage({ type: 'LT_SESSION_END', session: payload }, function (resp) {
+          if (chrome.runtime.lastError) {
+            done({ ok: true, persisted: false, error: chrome.runtime.lastError.message });
+            return;
+          }
+          console.log('[LT] Saved:', Math.round(cur.totalPlayMs / 1000) + 's', cur.title, reason);
+          done({ ok: true, persisted: !!(resp && resp.ok), response: resp });
+        });
+      } catch (e) {
+        console.log('[LT] Saved (send failed):', cur.title, reason);
+        done({ ok: true, persisted: false, error: e.message });
+      }
+    } else {
+      console.log('[LT] Discarded short session:', reason);
+      done({ ok: false, reason: 'too_short' });
+    }
   }
 
   function startManualReading() {
     if (session) return false;
     stopManualTick();
+    var startHref = window.location.href;
+    var startTitle = getTitle() || document.title;
     session = {
       id: uid(),
-      title: getTitle(),
-      url: window.location.href,
+      title: startTitle,
+      url: startHref,
       startTime: Date.now(),
       totalPlayMs: 0,
       segmentStart: null,
       manual: true,
-      pageKey: getPageKey(),
-      ytVideoId: ''
+      origin: window.location.origin,
+      ytVideoId: '',
+      exploredPages: [{ url: startHref, title: startTitle, t: Date.now() }]
     };
     lastState = 'playing';
     manualTick = setInterval(function () {
@@ -185,9 +276,7 @@
       } else {
         lastState = 'playing';
       }
-      if (session.pageKey && getPageKey() !== session.pageKey) {
-        endSession('page_change');
-      }
+      // Same-tab doc/wiki navigation: keep one session; pages go to exploredPages (see URL watcher).
       return;
     }
 
@@ -238,6 +327,7 @@
 
   chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     if (msg.type === 'LT_GET_STATUS') {
+      var ep = session && session.manual && session.exploredPages ? session.exploredPages.length : 0;
       sendResponse({
         playing: lastState === 'playing',
         paused: lastState === 'paused' && !!session,
@@ -245,7 +335,8 @@
         manualReading: !!(session && session.manual),
         hasVideo: !!getVideoEl(),
         title: session ? session.title : '',
-        elapsedMs: getElapsedMs()
+        elapsedMs: getElapsedMs(),
+        pagesExplored: ep
       });
       return true;
     }
@@ -257,7 +348,10 @@
       onPlay();
     }
     if (msg.type === 'LT_MANUAL_STOP' || msg.type === 'LT_SESSION_COMPLETE') {
-      endSession(msg.type === 'LT_SESSION_COMPLETE' ? 'manual_complete' : 'manual_stop');
+      endSession(msg.type === 'LT_SESSION_COMPLETE' ? 'manual_complete' : 'manual_stop', function (result) {
+        sendResponse({ ack: true, end: result });
+      });
+      return true;
     }
   });
 
@@ -273,26 +367,41 @@
     });
 
     setInterval(function () {
-      if (location.href !== lastUrl) {
-        lastUrl = location.href;
-        if (session) endSession('url_change');
-        else lastState = 'idle';
-        noVideoStreak = 0;
-      }
+      if (location.href === lastUrl) return;
+      lastUrl = location.href;
+      if (session) endSession('url_change');
+      else lastState = 'idle';
+      noVideoStreak = 0;
     }, 1000);
   } else {
     var lastHrefNav = location.href;
     setInterval(function () {
-      if (location.href !== lastHrefNav) {
-        lastHrefNav = location.href;
-        if (session) endSession('url_change');
-        else lastState = 'idle';
+      if (location.href === lastHrefNav) return;
+      lastHrefNav = location.href;
+      if (session && session.manual) {
+        recordExploredPage();
         noVideoStreak = 0;
+        return;
       }
+      if (session) endSession('url_change');
+      else lastState = 'idle';
+      noVideoStreak = 0;
     }, 1000);
   }
 
   function onLeave() {
+    if (session && session.manual && !isYouTube()) {
+      var snap = buildManualSnapshot();
+      if (snap) {
+        try {
+          chrome.runtime.sendMessage({ type: 'LT_MANUAL_STASH', snapshot: snap });
+        } catch (e) {}
+      }
+      stopManualTick();
+      session = null;
+      lastState = 'idle';
+      return;
+    }
     if (session) endSession('tab_close');
   }
   window.addEventListener('pagehide', onLeave);
@@ -303,6 +412,7 @@
   });
   mo.observe(document.documentElement, { childList: true, subtree: true });
 
+  tryResumeManualAfterLoad();
   startPolling();
   console.log('[LT] Video tracker active on', location.hostname);
 })();

@@ -58,6 +58,37 @@ function yearProgressPct() {
   return Math.round(((now.getTime() - y0) / (y1 - y0)) * 100);
 }
 
+function manualPauseKey(tabId) {
+  return 'lt_mpause_' + tabId;
+}
+
+/** Save a paused manual reading session when the tab navigates away (cross-origin = paused, not ended). */
+async function finalizeStashedManualOnTabClose(tabId) {
+  var key = manualPauseKey(tabId);
+  var raw = await chrome.storage.session.get(key);
+  var snap = raw[key];
+  if (!snap) return;
+  await chrome.storage.session.remove(key);
+  var dur = num(snap.totalPlayMs, 0);
+  if (dur < 30000) return;
+  var sessionRow = {
+    id: snap.id || generateId(),
+    title: snap.title,
+    url: snap.url,
+    startTime: num(snap.startTime, Date.now()),
+    endTime: Date.now(),
+    durationMs: dur,
+    enriched: null,
+    synced: false,
+    createdAt: Date.now(),
+    manualReading: true,
+    exploredPages: Array.isArray(snap.exploredPages) ? snap.exploredPages : []
+  };
+  await addSession(sessionRow);
+  setTimeout(function() { runEnrich(sessionRow.id); }, 200);
+  await updateBadge();
+}
+
 async function buildInsightCtx(sessions) {
   var learnPrefs = await new Promise(function(resolve) {
     chrome.storage.local.get(['lt_learned_baseline_ms', 'lt_learning_target_hours'], resolve);
@@ -140,7 +171,9 @@ async function handle(msg, sender) {
       durationMs: dur,
       enriched: null,
       synced: false,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      manualReading: !!s.manualReading,
+      exploredPages: Array.isArray(s.exploredPages) ? s.exploredPages : []
     };
 
     await addSession(session);
@@ -211,36 +244,144 @@ async function handle(msg, sender) {
     return { ok: true, insights: insights };
   }
 
-  // Popup: sync one session to Google Form
+  // Popup: sync one session to Google Form (forceResync allows already-synced rows)
   if (msg.type === 'LT_SYNC_SESSION') {
-    return await doSync(msg.sessionId, msg.autoSubmit);
+    return await doSync(msg.sessionId, msg.autoSubmit, { forceResync: !!msg.forceResync });
   }
 
-  // Popup: sync all pending
-  if (msg.type === 'LT_SYNC_ALL') {
-    var pending = await getUnsyncedSessions();
-    if (!pending.length) return { ok: true, synced: 0 };
-    var results = [];
-    for (var i = 0; i < pending.length; i++) {
-      var r = await doSync(pending[i].id, msg.autoSubmit);
-      results.push(r);
-      if (i < pending.length - 1) await sleep(2500);
+  // Manual reading: stash on pagehide (pause), resume when returning to same origin
+  if (msg.type === 'LT_MANUAL_STASH') {
+    var tid = sender.tab && sender.tab.id;
+    if (tid == null || !msg.snapshot) return { ok: false, reason: 'bad_stash' };
+    await chrome.storage.session.set({ [manualPauseKey(tid)]: msg.snapshot });
+    return { ok: true };
+  }
+
+  if (msg.type === 'LT_MANUAL_TRY_RESUME') {
+    var tid2 = sender.tab && sender.tab.id;
+    if (tid2 == null) return { ok: false, reason: 'no_tab' };
+    var k = manualPauseKey(tid2);
+    var raw2 = await chrome.storage.session.get(k);
+    var snap2 = raw2[k];
+    if (!snap2) return { ok: false, reason: 'no_stash' };
+    if (String(msg.origin || '') !== String(snap2.origin || '')) {
+      return { ok: false, reason: 'origin_mismatch' };
     }
-    var count = results.filter(function(r){ return r.ok; }).length;
-    return { ok: true, synced: count, total: pending.length };
+    return { ok: true, snapshot: snap2 };
+  }
+
+  if (msg.type === 'LT_MANUAL_CLEAR_STASH') {
+    var tid3 = sender.tab && sender.tab.id;
+    if (tid3 != null) await chrome.storage.session.remove(manualPauseKey(tid3));
+    return { ok: true };
+  }
+
+  // Popup: sync all pending — one tab, wait for each formResponse before next
+  if (msg.type === 'LT_SYNC_ALL') {
+    var pendingAll = await getUnsyncedSessions();
+    if (!pendingAll.length) return { ok: true, synced: 0, total: 0 };
+    var settingsAll = await getSettings();
+    if (!settingsAll.lt_form_url) return { ok: false, reason: 'no_form_url' };
+    var reuseTabId = null;
+    var okCount = 0;
+    var batchFailReason = null;
+    for (var j = 0; j < pendingAll.length; j++) {
+      var rBatch = await doSync(pendingAll[j].id, msg.autoSubmit, {
+        reuseTabId: reuseTabId,
+        syncBatch: true
+      });
+      if (rBatch.tabId) reuseTabId = rBatch.tabId;
+      if (rBatch.ok) okCount++;
+      else {
+        batchFailReason = rBatch.reason || 'sync_failed';
+        break;
+      }
+      if (j < pendingAll.length - 1) await sleep(600);
+    }
+    if (reuseTabId && settingsAll.lt_form_url) {
+      try {
+        await chrome.tabs.update(reuseTabId, { url: settingsAll.lt_form_url, active: true });
+        await waitForTabComplete(reuseTabId, 25000);
+      } catch (eNav) {}
+    }
+    var allDone = okCount === pendingAll.length;
+    return {
+      ok: allDone,
+      synced: okCount,
+      total: pendingAll.length,
+      reason: allDone ? undefined : batchFailReason
+    };
   }
 
   return { ok: false, reason: 'unknown_type' };
 }
 
 // ── Form sync ─────────────────────────────────────────────────────────────────
-async function doSync(sessionId, autoSubmit) {
+function waitForTabComplete(tabId, timeoutMs) {
+  return new Promise(function(resolve) {
+    var resolved = false;
+    function done() {
+      if (resolved) return;
+      resolved = true;
+      chrome.tabs.onUpdated.removeListener(listener);
+      clearTimeout(tid);
+      resolve();
+    }
+    function listener(id, info) {
+      if (id === tabId && info.status === 'complete') done();
+    }
+    chrome.tabs.onUpdated.addListener(listener);
+    chrome.tabs.get(tabId, function(t) {
+      try {
+        if (t && t.status === 'complete') done();
+      } catch (e) {}
+    });
+    var tid = setTimeout(done, timeoutMs || 35000);
+  });
+}
+
+/** True when tab URL is post-submit confirmation (…/formResponse). */
+function waitForFormResponseUrl(tabId, timeoutMs) {
+  return new Promise(function(resolve) {
+    var resolved = false;
+    function finish(hit) {
+      if (resolved) return;
+      resolved = true;
+      chrome.tabs.onUpdated.removeListener(listener);
+      clearTimeout(tid);
+      resolve(hit);
+    }
+    function isFormResponse(url) {
+      return url && /docs\.google\.com\/forms\/.*\/formResponse/i.test(String(url));
+    }
+    function listener(id, info, tab) {
+      if (id !== tabId) return;
+      var u = (info && info.url) || (tab && tab.url) || '';
+      if (isFormResponse(u)) finish(true);
+    }
+    chrome.tabs.onUpdated.addListener(listener);
+    chrome.tabs.get(tabId, function(t) {
+      try {
+        if (t && isFormResponse(t.url)) finish(true);
+      } catch (e) {}
+    });
+    var tid = setTimeout(function() { finish(false); }, timeoutMs || 180000);
+  });
+}
+
+/**
+ * @param {{ reuseTabId?: number, syncBatch?: boolean, forceResync?: boolean }} [opts]
+ */
+async function doSync(sessionId, autoSubmit, opts) {
+  opts = opts || {};
   var settings = await getSettings();
   if (!settings.lt_form_url) return { ok: false, reason: 'no_form_url' };
 
   var sessions = await getSessions();
   var s = sessions.find(function(x) { return x.id === sessionId; });
   if (!s) return { ok: false, reason: 'not_found' };
+  if (s.synced && !opts.forceResync) return { ok: false, reason: 'already_synced' };
+  if (!s.enriched) return { ok: false, reason: 'not_enriched' };
 
   var e = s.enriched || {};
   var formData = {
@@ -252,45 +393,56 @@ async function doSync(sessionId, autoSubmit) {
     skillset: e.skillset || '',
     epicLink: e.epicLink || '',
     autoSubmit: !!autoSubmit,
-    sessionId: sessionId
+    sessionId: sessionId,
+    formEmail: (settings.lt_form_email || '').trim(),
+    viewFormUrl: settings.lt_form_url
   };
 
-  // Store form data for the content script to pick up
   await new Promise(function(resolve) {
     chrome.storage.local.set({ lt_pending_form: formData }, resolve);
   });
 
-  // Open form in new tab and inject filler when loaded
-  var tab = await chrome.tabs.create({ url: settings.lt_form_url, active: true });
+  var tabId;
+  if (opts.reuseTabId) {
+    tabId = opts.reuseTabId;
+    await chrome.tabs.update(tabId, { url: settings.lt_form_url, active: true });
+    await waitForTabComplete(tabId, 35000);
+  } else {
+    var tab = await chrome.tabs.create({ url: settings.lt_form_url, active: true });
+    tabId = tab.id;
+    await waitForTabComplete(tabId, 35000);
+  }
 
-  await new Promise(function(resolve) {
-    var listener = function(tabId, info) {
-      if (tabId === tab.id && info.status === 'complete') {
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve();
-      }
-    };
-    chrome.tabs.onUpdated.addListener(listener);
-    // Timeout safety
-    setTimeout(resolve, 10000);
-  });
-
-  await sleep(1500); // React hydration settle time
+  await sleep(2000);
 
   try {
     await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
+      target: { tabId: tabId },
       files: ['content/form-filler.js']
     });
-  } catch(e) {
-    return { ok: false, reason: 'script_inject_failed', error: e.message };
+  } catch (err) {
+    return { ok: false, reason: 'script_inject_failed', error: err.message, tabId: tabId };
   }
 
-  // Mark as synced
+  var waitMs = autoSubmit ? 180000 : 900000;
+  var sawResponse = await waitForFormResponseUrl(tabId, waitMs);
+  if (!sawResponse) {
+    return { ok: false, reason: 'response_timeout', tabId: tabId };
+  }
+
+  await sleep(500);
+
   await updateSession(sessionId, { synced: true, syncedAt: Date.now() });
   await updateBadge();
 
-  return { ok: true };
+  if (!opts.syncBatch && settings.lt_form_url) {
+    try {
+      await chrome.tabs.update(tabId, { url: settings.lt_form_url, active: true });
+      await waitForTabComplete(tabId, 25000);
+    } catch (e2) {}
+  }
+
+  return { ok: true, tabId: tabId };
 }
 
 function sleep(ms) {
@@ -305,6 +457,10 @@ async function startup() {
 
 chrome.runtime.onInstalled.addListener(function() {
   startup();
+});
+
+chrome.tabs.onRemoved.addListener(function(tabId) {
+  finalizeStashedManualOnTabClose(tabId);
 });
 
 startup();

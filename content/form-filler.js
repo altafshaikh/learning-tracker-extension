@@ -200,9 +200,33 @@
     return false;
   }
 
+  /**
+   * Google Forms often lazy-mounts sections until they enter the viewport.
+   * Scroll the page first so text/radio inputs exist before we query the DOM.
+   */
+  async function primeFormViewport() {
+    window.scrollTo(0, 0);
+    await delay(200);
+    var docH = Math.max(
+      document.documentElement.scrollHeight || 0,
+      document.body && document.body.scrollHeight || 0,
+      1
+    );
+    var steps = 6;
+    var i;
+    for (i = 1; i <= steps; i++) {
+      var y = Math.round((docH * i) / steps);
+      window.scrollTo(0, y);
+      await delay(220);
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    await delay(500);
+  }
+
   async function fillForm(data) {
     console.log('[LT Form] Filling with:', data);
 
+    await primeFormViewport();
     await dismissBlockingDialogs(4000);
     await delay(400);
     await ensureRequiredCheckboxes(data);

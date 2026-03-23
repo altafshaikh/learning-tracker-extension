@@ -44,11 +44,24 @@ export async function testKey(apiKey) {
   }
 }
 
+function formatExploredPages(session) {
+  var pages = session.exploredPages;
+  if (!Array.isArray(pages) || pages.length < 2) return '';
+  var lines = pages.slice(0, 25).map(function(p, i) {
+    var t = (p && p.title) ? String(p.title).slice(0, 120) : '';
+    var u = (p && p.url) ? String(p.url).slice(0, 200) : '';
+    return (i + 1) + '. ' + t + (u ? ' — ' + u : '');
+  });
+  return '\nSame-tab reading session — pages explored in order:\n' + lines.join('\n') + '\n';
+}
+
 export async function enrichSession(apiKey, session, model) {
+  var explored = formatExploredPages(session);
   var prompt = 'Extract learning metadata from this web session. Return ONLY valid JSON.\n\n' +
     'Title: "' + session.title + '"\n' +
     'URL: ' + session.url + '\n' +
-    'Duration: ' + Math.round((session.durationMs || 0) / 60000) + ' minutes\n\n' +
+    'Duration: ' + Math.round((session.durationMs || 0) / 60000) + ' minutes\n' +
+    explored + '\n' +
     'Return JSON with exactly these keys:\n' +
     '{\n' +
     '  "concept": "specific topic (e.g. React Hooks, AWS S3, Agile Scrum)",\n' +

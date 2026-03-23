@@ -153,6 +153,14 @@
     .sessions-area::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
     .session-row{display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)}
     .session-row:last-child{border-bottom:none}
+    .sess-sync-wrap{flex-shrink:0;margin-left:auto;padding-top:1px}
+    .sess-sync-btn{width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;font:inherit}
+    .sess-sync-btn:hover:not(:disabled){background:var(--bg2);color:var(--green);border-color:rgba(62,207,142,.35)}
+    .sess-sync-btn.synced{color:var(--green);border-color:rgba(62,207,142,.28)}
+    .sess-sync-btn.synced:hover{color:var(--text);border-color:rgba(62,207,142,.5)}
+    .sess-sync-btn:disabled{opacity:.38;cursor:not-allowed}
+    .sess-sync-btn.busy{pointer-events:none;opacity:.55}
+    .sess-sync-svg{width:15px;height:15px;display:block;flex-shrink:0}
     .sdot{width:6px;height:6px;border-radius:50%;margin-top:5px;flex-shrink:0}
     .sdot.synced{background:var(--green)}.sdot.pending{background:var(--amber)}.sdot.enriching{background:var(--purple);animation:pulse 1.5s infinite}
     .sess-ico{width:18px;height:18px;color:var(--purple);opacity:.85;flex-shrink:0;margin-top:2px}
@@ -186,7 +194,7 @@
       <div class="brand-name">Learning <em>Tracker</em></div>
       <div class="brand-sub">AI Powered</div>
     </div>
-    <div class="dot inactive" id="status-dot" style="margin-left:4px"></div>
+    <div class="dot inactive" id="status-dot" style="margin-left:4px" role="status" aria-live="polite" title="Idle — open a trackable tab" aria-label="Not tracking"></div>
   </div>
   <div class="hdr-btns">
     <button class="hbtn" id="btn-refresh" title="Refresh">↻</button>
