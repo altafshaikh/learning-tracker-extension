@@ -5,8 +5,75 @@ import {
   getStreak, bumpStreak, generateId,
   getInsights, saveInsights
 } from '../utils/storage.js';
-import { enrichSession, generateInsights } from '../utils/groq.js';
+import { enrichSession, generateInsights, inferDomain } from '../utils/groq.js';
 import { seedBundledDefaultsIfEmpty } from '../utils/defaults.js';
+
+function num(x, d) {
+  var n = Number(x);
+  return isNaN(n) ? (d != null ? d : 0) : n;
+}
+
+function normalizeSession(s) {
+  return Object.assign({}, s, {
+    durationMs: num(s.durationMs, 0),
+    startTime: num(s.startTime, 0),
+    endTime: s.endTime != null ? num(s.endTime, 0) : s.endTime,
+    createdAt: s.createdAt != null ? num(s.createdAt, 0) : s.createdAt
+  });
+}
+
+function computeDomainSpreadMs(sessions, daysBack) {
+  var cutoff = Date.now() - (daysBack || 30) * 86400000;
+  var map = {};
+  for (var i = 0; i < sessions.length; i++) {
+    var s = sessions[i];
+    var st = num(s.startTime, 0);
+    if (st < cutoff) continue;
+    var d = (s.enriched && s.enriched.domain) || inferDomain((s.title || '') + ' ' + (s.url || ''));
+    map[d] = (map[d] || 0) + num(s.durationMs, 0);
+  }
+  return map;
+}
+
+function domainSpreadToText(map) {
+  var lines = Object.keys(map)
+    .map(function(k) { return [k, map[k]]; })
+    .sort(function(a, b) { return b[1] - a[1]; })
+    .map(function(e) {
+      return '- ' + e[0] + ': ' + Math.round(e[1] / 60000) + ' min';
+    });
+  return lines.length ? lines.join('\n') : '(no sessions in window)';
+}
+
+function domainSpreadToSortedPairs(map) {
+  return Object.keys(map)
+    .map(function(k) { return [k, map[k]]; })
+    .sort(function(a, b) { return b[1] - a[1]; });
+}
+
+function yearProgressPct() {
+  var now = new Date();
+  var y0 = new Date(now.getFullYear(), 0, 1).getTime();
+  var y1 = new Date(now.getFullYear() + 1, 0, 1).getTime();
+  return Math.round(((now.getTime() - y0) / (y1 - y0)) * 100);
+}
+
+async function buildInsightCtx(sessions) {
+  var learnPrefs = await new Promise(function(resolve) {
+    chrome.storage.local.get(['lt_learned_baseline_ms', 'lt_learning_target_hours'], resolve);
+  });
+  var baseline = num(learnPrefs.lt_learned_baseline_ms, 0);
+  var extMs = sessions.reduce(function(a, s) { return a + num(s.durationMs, 0); }, 0);
+  var targetH = num(learnPrefs.lt_learning_target_hours, 40);
+  if (targetH <= 0) targetH = 40;
+  var spreadMap = computeDomainSpreadMs(sessions, 30);
+  return {
+    targetHours: targetH,
+    totalLearnedMs: baseline + extMs,
+    domainSpreadText: domainSpreadToText(spreadMap),
+    yearProgressPct: yearProgressPct()
+  };
+}
 
 // ── Badge helper ──────────────────────────────────────────────────────────────
 async function updateBadge() {
@@ -34,7 +101,9 @@ async function runEnrich(id) {
     // Regenerate insights every 3 sessions
     var all = await getSessions();
     if (all.filter(function(x){ return x.enriched; }).length % 3 === 0) {
-      var insights = await generateInsights(settings.lt_groq_key, all, settings.lt_model);
+      var normalized = all.map(normalizeSession);
+      var ctx = await buildInsightCtx(normalized);
+      var insights = await generateInsights(settings.lt_groq_key, normalized, settings.lt_model, ctx);
       if (insights && insights.length) await saveInsights(insights);
     }
   } catch(e) {
@@ -59,15 +128,16 @@ async function handle(msg, sender) {
   // Content script: video session ended
   if (msg.type === 'LT_SESSION_END') {
     var s = msg.session;
-    if (!s || s.durationMs < 30000) return { ok: false, reason: 'too_short' };
+    var dur = s ? num(s.durationMs, 0) : 0;
+    if (!s || dur < 30000) return { ok: false, reason: 'too_short' };
 
     var session = {
       id: s.id || generateId(),
       title: s.title,
       url: s.url,
-      startTime: s.startTime,
+      startTime: num(s.startTime, Date.now()),
       endTime: s.endTime || Date.now(),
-      durationMs: s.durationMs,
+      durationMs: dur,
       enriched: null,
       synced: false,
       createdAt: Date.now()
@@ -79,20 +149,54 @@ async function handle(msg, sender) {
     return { ok: true };
   }
 
-  // Popup: get all data for display
+  // Popup: get all data for display (single source for Charts + Insights totals)
   if (msg.type === 'LT_GET_DATA') {
-    var sessions = await getSessions();
+    var rawSessions = await getSessions();
+    var sessions = rawSessions.map(normalizeSession);
     var stats = await getWeekStats();
     var streak = await getStreak();
     var insights = await getInsights();
     var unsynced = await getUnsyncedSessions();
+    var learnPrefs = await new Promise(function(resolve) {
+      chrome.storage.local.get(['lt_learned_baseline_ms', 'lt_learning_target_hours'], resolve);
+    });
+    var extMs = sessions.reduce(function(a, s) { return a + num(s.durationMs, 0); }, 0);
+    var baseline = num(learnPrefs.lt_learned_baseline_ms, 0);
+    var targetH = num(learnPrefs.lt_learning_target_hours, 40);
+    if (targetH <= 0) targetH = 40;
+    var earliest = null;
+    for (var si = 0; si < sessions.length; si++) {
+      var t0 = num(sessions[si].startTime, 0);
+      if (earliest == null || t0 < earliest) earliest = t0;
+    }
+    var spread7 = computeDomainSpreadMs(sessions, 7);
+    var spread30 = computeDomainSpreadMs(sessions, 30);
+    var pairs30 = domainSpreadToSortedPairs(spread30);
+    var yp = yearProgressPct();
+    var totalLearnedMs = baseline + extMs;
+    var ctxSnap = {
+      targetHours: targetH,
+      totalLearnedMs: totalLearnedMs,
+      domainSpreadText: domainSpreadToText(spread30),
+      yearProgressPct: yp
+    };
     return {
       ok: true,
       sessions: sessions.slice(-30).reverse(),
+      allSessions: sessions,
       stats: stats,
       streak: streak,
       insights: insights,
-      unsyncedCount: unsynced.length
+      unsyncedCount: unsynced.length,
+      learnedBaselineMs: baseline,
+      learningTargetHours: targetH,
+      extensionRecordedMs: extMs,
+      totalLearnedMs: totalLearnedMs,
+      firstSessionStart: earliest,
+      domainPieWeek: domainSpreadToSortedPairs(spread7),
+      domainPieMonth: pairs30,
+      yearProgressPct: yp,
+      insightContext: ctxSnap
     };
   }
 
@@ -100,8 +204,9 @@ async function handle(msg, sender) {
   if (msg.type === 'LT_REFRESH_INSIGHTS') {
     var settings = await getSettings();
     if (!settings.lt_groq_key) return { ok: false, reason: 'no_key' };
-    var sessions = await getSessions();
-    var insights = await generateInsights(settings.lt_groq_key, sessions, settings.lt_model);
+    var sessionsR = (await getSessions()).map(normalizeSession);
+    var ctxR = await buildInsightCtx(sessionsR);
+    var insights = await generateInsights(settings.lt_groq_key, sessionsR, settings.lt_model, ctxR);
     if (insights && insights.length) await saveInsights(insights);
     return { ok: true, insights: insights };
   }

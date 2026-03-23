@@ -15,7 +15,7 @@
     .card-desc{font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.5}
     .card-desc a{color:var(--green)}
     label{display:block;font-size:11px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px}
-    input[type=text],input[type=password],input[type=url],select{width:100%;height:40px;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;color:var(--text);font-size:13px;padding:0 12px;outline:none;transition:border-color .15s;font-family:inherit}
+    input[type=text],input[type=password],input[type=url],input[type=number],select{width:100%;height:40px;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;color:var(--text);font-size:13px;padding:0 12px;outline:none;transition:border-color .15s;font-family:inherit}
     input:focus,select:focus{border-color:var(--green)}
     input::placeholder{color:var(--muted)}
     .row{display:flex;gap:8px;margin-top:10px}
@@ -38,7 +38,24 @@
 </head>
 <body>
   <h1>Learning <em>Tracker</em></h1>
-  <div class="sub">Configure your Groq API key and Google Form URL</div>
+  <div class="sub">Learning goals, Groq API key, and Google Form URL</div>
+
+  <!-- Learning goals (global — same totals as popup Charts & Insights) -->
+  <div class="card">
+    <div class="card-title">Learning goals</div>
+    <div class="card-desc">These values are stored in <code>chrome.storage.local</code> and drive <strong>Total learned</strong> and progress everywhere: <strong>total = learned before + all time tracked by this extension</strong>. Change your hour target anytime.</div>
+    <div class="fg">
+      <label>Learned before (hours)</label>
+      <input type="number" id="baseline-hours" min="0" step="0.5" placeholder="0"/>
+      <div class="hint">Study you did before installing the extension (not double-counted with tracked sessions).</div>
+    </div>
+    <div class="fg">
+      <label>Target (hours)</label>
+      <input type="number" id="target-hours" min="1" step="1" placeholder="40"/>
+    </div>
+    <button class="btn primary" type="button" id="save-learning-goals">Save baseline &amp; target</button>
+    <div class="status" id="learning-goals-status"></div>
+  </div>
 
   <!-- Groq -->
   <div class="card">

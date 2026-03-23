@@ -8,15 +8,46 @@ function showStatus(id, text, type) {
 }
 
 function loadSettingsFromStorage() {
-  chrome.storage.local.get(['lt_groq_key','lt_model','lt_form_url','lt_auto_submit'], function(r) {
+  chrome.storage.local.get([
+    'lt_groq_key',
+    'lt_model',
+    'lt_form_url',
+    'lt_auto_submit',
+    'lt_learned_baseline_ms',
+    'lt_learning_target_hours'
+  ], function(r) {
     if (r.lt_groq_key) document.getElementById('groq-key').value = r.lt_groq_key;
     if (r.lt_model) document.getElementById('groq-model').value = r.lt_model;
     if (r.lt_form_url) document.getElementById('form-url').value = r.lt_form_url;
     document.getElementById('auto-submit').checked = !!r.lt_auto_submit;
+    var bhMs = Number(r.lt_learned_baseline_ms) || 0;
+    var bh = bhMs / 3600000;
+    document.getElementById('baseline-hours').value = bh > 0 ? String(Math.round(bh * 10) / 10) : '';
+    var th = Number(r.lt_learning_target_hours);
+    document.getElementById('target-hours').value =
+      !isNaN(th) && th > 0 ? String(th) : '40';
   });
 }
 
 loadSettingsFromStorage();
+
+document.getElementById('save-learning-goals').addEventListener('click', function() {
+  var bhRaw = String(document.getElementById('baseline-hours').value || '').trim();
+  var thRaw = String(document.getElementById('target-hours').value || '').trim();
+  var bh = bhRaw === '' ? 0 : parseFloat(bhRaw);
+  var th = thRaw === '' ? 40 : parseFloat(thRaw);
+  if (isNaN(bh) || bh < 0) bh = 0;
+  if (isNaN(th) || th < 1) th = 40;
+  chrome.storage.local.set({
+    lt_learned_baseline_ms: Math.round(bh * 3600000),
+    lt_learning_target_hours: th
+  }, function() {
+    if (chrome.runtime.lastError) {
+      return showStatus('learning-goals-status', chrome.runtime.lastError.message, 'err');
+    }
+    showStatus('learning-goals-status', 'Saved. Open the extension popup to see updated totals.', 'ok');
+  });
+});
 
 document.getElementById('save-key').addEventListener('click', function() {
   var key = document.getElementById('groq-key').value.trim();
