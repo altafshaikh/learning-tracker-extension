@@ -7,12 +7,39 @@ function showStatus(id, text, type) {
   if (type !== 'err') setTimeout(function() { el.className = 'status'; }, 3000);
 }
 
-// Load saved values
-chrome.storage.local.get(['lt_groq_key','lt_model','lt_form_url','lt_auto_submit'], function(r) {
-  if (r.lt_groq_key) document.getElementById('groq-key').value = r.lt_groq_key;
-  if (r.lt_model) document.getElementById('groq-model').value = r.lt_model;
-  if (r.lt_form_url) document.getElementById('form-url').value = r.lt_form_url;
-  document.getElementById('auto-submit').checked = !!r.lt_auto_submit;
+function loadSettingsFromStorage() {
+  chrome.storage.local.get(['lt_groq_key','lt_model','lt_form_url','lt_auto_submit'], function(r) {
+    if (r.lt_groq_key) document.getElementById('groq-key').value = r.lt_groq_key;
+    if (r.lt_model) document.getElementById('groq-model').value = r.lt_model;
+    if (r.lt_form_url) document.getElementById('form-url').value = r.lt_form_url;
+    document.getElementById('auto-submit').checked = !!r.lt_auto_submit;
+  });
+}
+
+loadSettingsFromStorage();
+
+document.getElementById('apply-defaults').addEventListener('click', function() {
+  fetch(chrome.runtime.getURL('config/defaults.json'))
+    .then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function(d) {
+      var patch = {};
+      if (d.lt_form_url) patch.lt_form_url = d.lt_form_url;
+      if (d.lt_model) patch.lt_model = d.lt_model;
+      if (d.lt_auto_submit !== undefined) patch.lt_auto_submit = !!d.lt_auto_submit;
+      if (Object.keys(patch).length === 0) {
+        return showStatus('bundled-status', 'defaults.json has no lt_form_url / lt_model / lt_auto_submit to apply', 'err');
+      }
+      chrome.storage.local.set(patch, function() {
+        showStatus('bundled-status', 'Applied from config/defaults.json', 'ok');
+        loadSettingsFromStorage();
+      });
+    })
+    .catch(function(e) {
+      showStatus('bundled-status', 'Could not load defaults.json: ' + e.message, 'err');
+    });
 });
 
 document.getElementById('save-key').addEventListener('click', function() {

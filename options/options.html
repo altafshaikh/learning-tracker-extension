@@ -40,6 +40,17 @@
   <h1>Learning <em>Tracker</em></h1>
   <div class="sub">Configure your Groq API key and Google Form URL</div>
 
+  <!-- Bundled defaults (single source in repo) -->
+  <div class="card">
+    <div class="card-title">Bundled defaults (<code>config/defaults.json</code>)</div>
+    <div class="card-desc">Edit this file in the extension folder for your Form URL, model, and auto-submit. On load, empty fields in browser storage are filled from the file. The extension always reads settings from <strong>chrome.storage.local</strong> at runtime — the JSON file is only a template and seed.</div>
+    <div class="row">
+      <button class="btn primary" id="apply-defaults" type="button">Apply from defaults.json</button>
+    </div>
+    <div class="hint" style="margin-top:10px">Use this after you change <code>config/defaults.json</code> to overwrite Form URL / model / auto-submit in the browser from the file.</div>
+    <div class="status" id="bundled-status"></div>
+  </div>
+
   <!-- Groq -->
   <div class="card">
     <div class="card-title">Groq API Key (BYOK)</div>

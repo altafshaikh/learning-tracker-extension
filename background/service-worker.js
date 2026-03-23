@@ -6,6 +6,7 @@ import {
   getInsights, saveInsights
 } from '../utils/storage.js';
 import { enrichSession, generateInsights } from '../utils/groq.js';
+import { seedBundledDefaultsIfEmpty } from '../utils/defaults.js';
 
 // ── Badge helper ──────────────────────────────────────────────────────────────
 async function updateBadge() {
@@ -191,6 +192,15 @@ function sleep(ms) {
   return new Promise(function(r) { setTimeout(r, ms); });
 }
 
-// ── Startup ───────────────────────────────────────────────────────────────────
-updateBadge();
+// ── Startup: seed config/defaults.json into empty storage keys (single source in repo) ──
+async function startup() {
+  await seedBundledDefaultsIfEmpty();
+  await updateBadge();
+}
+
+chrome.runtime.onInstalled.addListener(function() {
+  startup();
+});
+
+startup();
 console.log('[LT] Service worker ready');

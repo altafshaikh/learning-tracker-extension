@@ -1,0 +1,13 @@
+{
+  "name": "learning-tracker-extension",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "dev": "chokidar 'manifest.json' 'content/**/*.js' 'background/**/*.js' 'popup/**/*.{js,html}' 'options/**/*.{js,html}' 'utils/**/*.js' 'config/**/*.json' -c 'node scripts/dev-reload-hint.js'"
+  },
+  "devDependencies": {
+    "chokidar-cli": "^3.0.0",
+    "happy-dom": "^20.8.4"
+  }
+}

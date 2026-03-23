@@ -4,6 +4,11 @@
 
 (function () {
   if (window.__ltActive) return;
+  if (typeof globalThis.__ltGetAllVideoElements !== 'function' ||
+      typeof globalThis.__ltPickPrimaryVideo !== 'function') {
+    console.error('[LT] Missing utils/video-discovery.js — check manifest script order');
+    return;
+  }
   window.__ltActive = true;
 
   // ── State ──────────────────────────────────────────────────────────────────
@@ -35,26 +40,12 @@
       .trim() || document.title;
   }
 
-  // YouTube and many SPAs put <video> inside Shadow DOM — querySelectorAll('video') misses it.
   function getAllVideos() {
-    var videos = [];
-    function walk(node) {
-      if (!node) return;
-      if (node.nodeName === 'VIDEO') videos.push(node);
-      if (node.shadowRoot) walk(node.shadowRoot);
-      var child = node.firstElementChild;
-      while (child) {
-        walk(child);
-        child = child.nextElementSibling;
-      }
-    }
-    walk(document.documentElement);
-    return videos;
+    return globalThis.__ltGetAllVideoElements(document.documentElement);
   }
 
   function getVideoEl() {
-    var videos = getAllVideos();
-    return videos.find(function(v) { return !v.paused; }) || videos[0] || null;
+    return globalThis.__ltPickPrimaryVideo(getAllVideos());
   }
 
   function isYouTube() {
@@ -121,7 +112,8 @@
     var video = getVideoEl();
 
     if (video) {
-      if (!video.paused && video.readyState >= 2) {
+      // Do not require readyState >= 2 — some players report playing before HAVE_CURRENT_DATA.
+      if (!video.paused && !video.ended) {
         onPlay();
         // Keep title fresh while playing (YouTube updates it async)
         if (session && isYouTube()) {
