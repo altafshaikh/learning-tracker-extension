@@ -54,12 +54,26 @@
     .track-page-btn:hover{background:rgba(139,124,248,.12)}
     @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 
+    .domain-gate-strip{display:none;padding:8px 14px;border-bottom:1px solid rgba(245,166,35,.25);background:rgba(245,166,35,.08);flex-shrink:0;font-size:11px;line-height:1.45;color:var(--text)}
+    .domain-gate-strip.visible{display:block}
+    .domain-gate-strip p{margin:0 0 6px;color:var(--muted);font-size:11px}
+    .domain-gate-strip .domain-gate-actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px}
+    .domain-gate-strip .btn-add-domain{background:var(--bg3);border:1px solid rgba(245,166,35,.45);border-radius:6px;color:var(--amber);font-size:10px;padding:4px 10px;cursor:pointer;font-family:inherit}
+    .domain-gate-strip .btn-add-domain:hover{background:rgba(245,166,35,.12)}
+    .domain-gate-strip .btn-add-domain:disabled{opacity:.5;cursor:not-allowed}
+
     .tracking-idle{display:none;align-items:center;justify-content:space-between;gap:8px;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;font-size:11px;color:var(--muted)}
     .tracking-idle.visible{display:flex}
     .tracking-idle-hint{flex:1;line-height:1.35}
 
     .banner{margin:8px 14px 0;padding:8px 10px;background:rgba(245,166,35,.08);border:1px solid rgba(245,166,35,.2);border-radius:7px;font-size:11px;color:var(--amber);line-height:1.45;flex-shrink:0}
     .banner a{color:var(--amber);cursor:pointer;text-decoration:underline}
+    .banner.banner-error{background:rgba(232,93,93,.1);border:1px solid rgba(232,93,93,.32);color:#ffb4b4}
+    .banner.banner-error a{color:#f5a623}
+    .insights-groq-error{display:none;margin-bottom:10px;padding:10px 12px;border-radius:10px;border:1px solid rgba(232,93,93,.35);background:rgba(232,93,93,.08);font-size:12px;line-height:1.45;color:#eeedf0}
+    .insights-groq-error strong{display:block;margin-bottom:4px;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#ff9a9a}
+    .insights-groq-error p{margin:0 0 8px;color:var(--muted);font-size:11px}
+    .section-btn:disabled{opacity:.45;cursor:not-allowed;text-decoration:none}
 
     .stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;padding:10px 14px;border-bottom:1px solid var(--border);flex-shrink:0}
     .stat{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px 9px}
@@ -221,13 +235,21 @@
   </div>
 </div>
 
+<div class="domain-gate-strip" id="domain-gate-strip" role="status" aria-live="polite">
+  <p id="domain-gate-strip-text"></p>
+  <div class="domain-gate-actions">
+    <button type="button" class="btn-add-domain" id="domain-gate-add-btn" style="display:none">Add domain &amp; track</button>
+  </div>
+</div>
+
 <div class="tracking-idle" id="tracking-idle" aria-live="polite">
   <span class="tracking-idle-hint">No video on this page — track reading time on blogs &amp; docs.</span>
   <button type="button" class="track-page-btn" id="btn-track-page-idle">Track this page</button>
 </div>
 
-<div class="banner" id="no-key-banner" style="display:none">
-  Add an <a id="link-settings">API key in Settings</a> to enable AI enrichment and insights.
+<div class="banner banner-error" id="no-key-banner" style="display:none" role="alert">
+  <strong style="display:block;margin-bottom:4px;font-size:10px;letter-spacing:.06em">Groq not set up</strong>
+  Add your Groq API key in <a id="link-settings">Settings</a> to enable session enrichment and AI insights.
 </div>
 
 <div class="stats">
@@ -290,6 +312,11 @@
         <div class="insights-badge">Progress · domains · AI tips</div>
       </div>
       <button type="button" class="section-btn" id="btn-insights">Refresh AI</button>
+    </div>
+    <div id="insights-groq-error" class="insights-groq-error" style="display:none" role="alert">
+      <strong>Groq not configured</strong>
+      <p>Sessions are still tracked. Add a Groq API key in Settings to enrich sessions and refresh AI tips.</p>
+      <button type="button" class="section-btn" id="link-insights-settings">Open Settings</button>
     </div>
     <div id="insights-dashboard" class="ins-dash"></div>
     <div class="insights-ai-hdr">AI suggestions</div>

@@ -5,7 +5,14 @@ import {
   getStreak, bumpStreak, generateId,
   getInsights, saveInsights
 } from '../utils/storage.js';
-import { enrichSession, generateInsights, inferDomain } from '../utils/groq.js';
+import {
+  enrichSession,
+  generateInsights,
+  inferDomain,
+  classifyTrackAllowlist,
+  resolveAllowlistDomain,
+  DOMAINS
+} from '../utils/groq.js';
 import { seedBundledDefaultsIfEmpty } from '../utils/defaults.js';
 
 function num(x, d) {
@@ -114,6 +121,12 @@ async function updateBadge() {
   chrome.action.setBadgeBackgroundColor({ color: '#3ecf8e' });
 }
 
+function effectiveEnrichDomains(settings) {
+  var a = settings.lt_domain_allowlist;
+  if (Array.isArray(a) && a.length) return a;
+  return DOMAINS;
+}
+
 // ── Enrich a session with Groq ────────────────────────────────────────────────
 async function runEnrich(id) {
   var settings = await getSettings();
@@ -124,7 +137,12 @@ async function runEnrich(id) {
   if (!s) return;
 
   try {
-    var enriched = await enrichSession(settings.lt_groq_key, s, settings.lt_model);
+    var enriched = await enrichSession(
+      settings.lt_groq_key,
+      s,
+      settings.lt_model,
+      effectiveEnrichDomains(settings)
+    );
     await updateSession(id, { enriched: enriched });
     await bumpStreak();
     await updateBadge();
@@ -156,6 +174,54 @@ async function handle(msg, sender) {
     return { ok: true };
   }
 
+  // Content script: Groq pre-check — only track if title/URL fits allowed domain list
+  if (msg.type === 'LT_CLASSIFY_TRACK') {
+    var settingsC = await getSettings();
+    if (!settingsC.lt_domain_gate_enabled) {
+      return { ok: true, track: true, skipped: true };
+    }
+    var list = settingsC.lt_domain_allowlist;
+    if (!Array.isArray(list) || !list.length) {
+      return { ok: true, track: false, reason: 'empty_allowlist' };
+    }
+    if (!settingsC.lt_groq_key) {
+      return { ok: true, track: false, reason: 'no_key' };
+    }
+    var out = await classifyTrackAllowlist(
+      settingsC.lt_groq_key,
+      msg.title,
+      msg.url,
+      settingsC.lt_model,
+      list
+    );
+    return {
+      ok: true,
+      track: out.track,
+      domain: out.domain,
+      classifiedDomain: out.classifiedDomain,
+      blockedByAllowlist: !!out.blockedByAllowlist,
+      notLearning: !!out.notLearning,
+      classifyErrorFallback: !!out.classifyErrorFallback
+    };
+  }
+
+  if (msg.type === 'LT_ADD_DOMAIN_TO_ALLOWLIST') {
+    var label = String(msg.domain || '').trim();
+    if (!label) return { ok: false, error: 'empty_domain' };
+    var settingsAdd = await getSettings();
+    var cur = Array.isArray(settingsAdd.lt_domain_allowlist)
+      ? settingsAdd.lt_domain_allowlist.slice()
+      : [];
+    if (resolveAllowlistDomain(label, cur)) {
+      return { ok: true, already: true, allowlist: cur };
+    }
+    cur.push(label);
+    await new Promise(function (resolve) {
+      chrome.storage.local.set({ lt_domain_allowlist: cur }, resolve);
+    });
+    return { ok: true, allowlist: cur };
+  }
+
   // Content script: video session ended
   if (msg.type === 'LT_SESSION_END') {
     var s = msg.session;
@@ -184,6 +250,7 @@ async function handle(msg, sender) {
 
   // Popup: get all data for display (single source for Charts + Insights totals)
   if (msg.type === 'LT_GET_DATA') {
+    var settingsData = await getSettings();
     var rawSessions = await getSessions();
     var sessions = rawSessions.map(normalizeSession);
     var stats = await getWeekStats();
@@ -215,6 +282,7 @@ async function handle(msg, sender) {
     };
     return {
       ok: true,
+      hasGroqKey: !!settingsData.lt_groq_key,
       sessions: sessions.slice(-30).reverse(),
       allSessions: sessions,
       stats: stats,

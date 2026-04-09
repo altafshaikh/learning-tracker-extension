@@ -972,6 +972,39 @@ function resetTrackingBarIdle() {
   }
 }
 
+function updateDomainGateStrip(resp) {
+  var strip = document.getElementById('domain-gate-strip');
+  var textEl = document.getElementById('domain-gate-strip-text');
+  var btn = document.getElementById('domain-gate-add-btn');
+  if (!strip || !textEl || !btn) return;
+  strip.classList.remove('visible');
+  btn.style.display = 'none';
+  btn.removeAttribute('data-domain');
+  if (
+    !resp ||
+    !resp.domainGateEnabled ||
+    !resp.hasVideo ||
+    resp.sessionActive ||
+    !resp.domainGate
+  ) {
+    return;
+  }
+  var dg = resp.domainGate;
+  if (dg.blockedByAllowlist && dg.classifiedDomain) {
+    textEl.textContent =
+      'Learning domain: "' +
+      dg.classifiedDomain +
+      '" (not in your allowed list). Add it to start recording this and future matches.';
+    btn.style.display = 'inline-block';
+    btn.dataset.domain = dg.classifiedDomain;
+    strip.classList.add('visible');
+  } else if (dg.notLearning) {
+    textEl.textContent =
+      'This video is not classified as learning for your domain list, so time is not recorded.';
+    strip.classList.add('visible');
+  }
+}
+
 function updateTrackingBarFromStatus(resp) {
   var bar = document.getElementById('tracking-bar');
   var pulse = document.getElementById('tracking-pulse');
@@ -1020,22 +1053,26 @@ function setTrackingIdleVisible(show) {
 function refreshLiveBar() {
   chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
     if (!tabs[0]) {
+      updateDomainGateStrip(null);
       resetTrackingBarIdle();
       setTrackingIdleVisible(false);
       return;
     }
     var u = tabs[0].url || '';
     if (u.startsWith('chrome://') || u.startsWith('edge://') || u.startsWith('about:') || u.startsWith('devtools://')) {
+      updateDomainGateStrip(null);
       resetTrackingBarIdle();
       setTrackingIdleVisible(false);
       return;
     }
     chrome.tabs.sendMessage(tabs[0].id, { type: 'LT_GET_STATUS' }, { frameId: 0 }, function(resp) {
       if (chrome.runtime.lastError) {
+        updateDomainGateStrip(null);
         resetTrackingBarIdle();
         setTrackingIdleVisible(false);
         return;
       }
+      updateDomainGateStrip(resp);
       updateTrackingBarFromStatus(resp);
       var idleShow = resp && !resp.sessionActive && resp.hasVideo === false;
       setTrackingIdleVisible(!!idleShow);
@@ -1055,11 +1092,22 @@ function stopLiveTick() {
   }
 }
 
+function setGroqSetupState(hasKey) {
+  var ban = document.getElementById('no-key-banner');
+  var insErr = document.getElementById('insights-groq-error');
+  var btn = document.getElementById('btn-insights');
+  if (ban) ban.style.display = hasKey ? 'none' : 'block';
+  if (insErr) insErr.style.display = hasKey ? 'none' : 'block';
+  if (btn) {
+    btn.disabled = !hasKey;
+    btn.title = hasKey ? '' : 'Add your Groq API key in Settings first';
+  }
+}
+
 function checkKey(callback) {
   chrome.storage.local.get(['lt_groq_key'], function(r) {
     var hasKey = !!r.lt_groq_key;
-    var ban = document.getElementById('no-key-banner');
-    if (ban) ban.style.display = hasKey ? 'none' : 'block';
+    setGroqSetupState(hasKey);
     if (callback) callback(hasKey);
   });
 }
@@ -1138,6 +1186,9 @@ function load() {
     renderInsightsDashboard(data);
     renderInsights(data.insights || []);
     setSyncButton(data.unsyncedCount || 0);
+
+    if (typeof data.hasGroqKey === 'boolean') setGroqSetupState(data.hasGroqKey);
+    else checkKey();
   });
 }
 
@@ -1177,6 +1228,13 @@ document.getElementById('link-settings').addEventListener('click', function() {
   chrome.runtime.openOptionsPage();
 });
 
+var linkInsightsSettings = document.getElementById('link-insights-settings');
+if (linkInsightsSettings) {
+  linkInsightsSettings.addEventListener('click', function() {
+    chrome.runtime.openOptionsPage();
+  });
+}
+
 var linkGoals = document.getElementById('link-learning-goals');
 if (linkGoals) {
   linkGoals.addEventListener('click', function(ev) {
@@ -1185,21 +1243,58 @@ if (linkGoals) {
   });
 }
 
+var domainGateAddBtn = document.getElementById('domain-gate-add-btn');
+if (domainGateAddBtn) {
+  domainGateAddBtn.addEventListener('click', function() {
+    var d = domainGateAddBtn.getAttribute('data-domain');
+    if (!d) return;
+    domainGateAddBtn.disabled = true;
+    chrome.runtime.sendMessage({ type: 'LT_ADD_DOMAIN_TO_ALLOWLIST', domain: d }, function(r) {
+      domainGateAddBtn.disabled = false;
+      var tx = document.getElementById('domain-gate-strip-text');
+      if (chrome.runtime.lastError || !r || !r.ok) {
+        if (tx) {
+          tx.textContent = 'Could not save. Open Settings → Learning domain gate and add the domain manually.';
+        }
+        return;
+      }
+      if (tx) {
+        tx.textContent = r.already
+          ? 'That domain was already in your list. If tracking does not start, pause and play the video.'
+          : 'Domain added. Recording should start on this video in a moment — try pausing and playing if needed.';
+      }
+      domainGateAddBtn.style.display = 'none';
+      setTimeout(function() {
+        refreshLiveBar();
+      }, 500);
+    });
+  });
+}
+
 document.getElementById('btn-insights').addEventListener('click', function() {
   var btn = this;
+  if (btn.disabled) return;
   btn.textContent = '…';
   btn.disabled = true;
   msg('LT_REFRESH_INSIGHTS')
     .then(function(r) {
-      if (r.insights) renderInsights(r.insights);
+      if (r && r.reason === 'no_key') {
+        setGroqSetupState(false);
+        return;
+      }
+      if (r && r.insights) renderInsights(r.insights);
     })
     .then(function() {
       btn.textContent = 'Refresh AI';
-      btn.disabled = false;
+      chrome.storage.local.get(['lt_groq_key'], function(x) {
+        setGroqSetupState(!!x.lt_groq_key);
+      });
     })
     .catch(function() {
       btn.textContent = 'Refresh AI';
-      btn.disabled = false;
+      chrome.storage.local.get(['lt_groq_key'], function(x) {
+        setGroqSetupState(!!x.lt_groq_key);
+      });
     });
 });
 
@@ -1329,8 +1424,11 @@ function sendStartManualRead() {
 document.getElementById('btn-track-page-idle').addEventListener('click', sendStartManualRead);
 
 chrome.storage.onChanged.addListener(function(changes, areaName) {
-  if (areaName !== 'local' || !changes.lt_sessions) return;
-  load();
+  if (areaName !== 'local') return;
+  if (changes.lt_groq_key) {
+    setGroqSetupState(!!(changes.lt_groq_key.newValue && String(changes.lt_groq_key.newValue).trim()));
+  }
+  if (changes.lt_sessions) load();
 });
 
 load();

@@ -16,6 +16,7 @@
     .card-desc a{color:var(--green)}
     label{display:block;font-size:11px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px}
     input[type=text],input[type=password],input[type=url],input[type=number],select{width:100%;height:40px;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;color:var(--text);font-size:13px;padding:0 12px;outline:none;transition:border-color .15s;font-family:inherit}
+    textarea{width:100%;min-height:80px;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;color:var(--text);font-size:13px;padding:10px 12px;outline:none;resize:vertical;font-family:inherit}
     input:focus,select:focus{border-color:var(--green)}
     input::placeholder{color:var(--muted)}
     .row{display:flex;gap:8px;margin-top:10px}
@@ -81,6 +82,33 @@
     <div class="status" id="key-status"></div>
   </div>
 
+  <!-- Learning domains (Groq gate) -->
+  <div class="card">
+    <div class="card-title">Learning domain gate</div>
+    <div class="card-desc">When enabled, Groq reads the <strong>video title</strong> and returns one learning domain from the full catalog (all five defaults plus any custom lines you added). Recording runs only if that domain is in your <strong>allowed</strong> list (checkboxes + textarea). If Groq picks a domain you have not allowed yet, the popup offers <strong>Add domain &amp; track</strong>. Requires a Groq API key. When this is on, it overrides the YouTube-only category filter below.</div>
+    <div class="fg">
+      <label class="checkbox-row">
+        <input type="checkbox" id="domain-gate-enabled"/>
+        Only track when Groq matches an allowed domain
+      </label>
+    </div>
+    <div class="fg">
+      <label>Default domains</label>
+      <label class="checkbox-row" style="margin-top:6px"><input type="checkbox" class="domain-std-cb" data-domain="Business/Leadership"/> Business/Leadership</label>
+      <label class="checkbox-row"><input type="checkbox" class="domain-std-cb" data-domain="Technology and Development Practices"/> Technology and Development Practices</label>
+      <label class="checkbox-row"><input type="checkbox" class="domain-std-cb" data-domain="Communication Skills"/> Communication Skills</label>
+      <label class="checkbox-row"><input type="checkbox" class="domain-std-cb" data-domain="Mandatory Compliance Training"/> Mandatory Compliance Training</label>
+      <label class="checkbox-row"><input type="checkbox" class="domain-std-cb" data-domain="Interpersonal Skills"/> Interpersonal Skills</label>
+    </div>
+    <div class="fg">
+      <label>Additional domains (one per line)</label>
+      <textarea id="domain-custom-extra" placeholder="e.g. Data &amp; Analytics&#10;Product Management"></textarea>
+      <div class="hint">These strings must match what you want Groq to return — use clear, consistent wording.</div>
+    </div>
+    <button class="btn primary" type="button" id="save-domain-gate">Save domain list &amp; gate</button>
+    <div class="status" id="domain-gate-status"></div>
+  </div>
+
   <!-- Form URL -->
   <div class="card">
     <div class="card-title">Google Form URL</div>
@@ -96,6 +124,20 @@
     <div class="status" id="form-status"></div>
   </div>
 
+  <!-- YouTube -->
+  <div class="card">
+    <div class="card-title">YouTube</div>
+    <div class="card-desc">Uses YouTube’s category metadata only when <strong>Learning domain gate</strong> is off. When the gate is on, Groq decides instead. If the gate is off, enabling this limits tracking to Education, Science &amp; Technology, and How-to &amp; Style.</div>
+    <div class="fg">
+      <label class="checkbox-row">
+        <input type="checkbox" id="yt-learning-only"/>
+        Only track learning categories on YouTube
+      </label>
+      <div class="hint">Uses category metadata from the watch page. If YouTube does not expose a category yet, tracking may start briefly and then stop once the category is known.</div>
+    </div>
+    <div class="status" id="yt-filter-status"></div>
+  </div>
+
   <!-- Prefs -->
   <div class="card">
     <div class="card-title">Sync Preferences</div>
@@ -109,6 +151,29 @@
     </div>
     <button class="btn primary" id="save-prefs">Save</button>
     <div class="status" id="prefs-status"></div>
+  </div>
+
+  <!-- Backup -->
+  <div class="card">
+    <div class="card-title">Backup &amp; restore</div>
+    <div class="card-desc">Download your data as JSON or restore from a file. Backups include sessions, streak, insights, goals, form URL, and Groq settings — <strong>keep exports private</strong> if they contain your API key.</div>
+    <div class="row" style="flex-wrap:wrap">
+      <button class="btn primary" type="button" id="export-data">Export backup</button>
+      <button class="btn" type="button" id="import-pick">Import from file…</button>
+      <input type="file" id="import-file" accept="application/json,.json" style="display:none" aria-hidden="true"/>
+    </div>
+    <div class="fg" style="margin-top:14px">
+      <label class="checkbox-row">
+        <input type="radio" name="import-mode" id="import-mode-replace" value="replace" checked/>
+        Replace all data in backup (sessions, streak, insights, settings from file)
+      </label>
+      <div class="hint">Only keys present in the file are written; other stored keys are left as-is.</div>
+      <label class="checkbox-row" style="margin-top:8px">
+        <input type="radio" name="import-mode" id="import-mode-merge" value="merge-sessions"/>
+        Merge sessions only (combine by session id; keep current settings &amp; insights)
+      </label>
+    </div>
+    <div class="status" id="backup-status"></div>
   </div>
 
   <!-- Danger -->

@@ -46,7 +46,15 @@ export async function deleteSession(id) {
 }
 
 export async function getSettings() {
-  var keys = ['lt_groq_key', 'lt_model', 'lt_form_url', 'lt_auto_submit', 'lt_form_email'];
+  var keys = [
+    'lt_groq_key',
+    'lt_model',
+    'lt_form_url',
+    'lt_auto_submit',
+    'lt_form_email',
+    'lt_domain_gate_enabled',
+    'lt_domain_allowlist'
+  ];
   return new Promise(function(resolve) {
     chrome.storage.local.get(keys, resolve);
   });

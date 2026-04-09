@@ -16,6 +16,115 @@
   }
   window.__ltActive = true;
 
+  /** YouTube API category IDs: 26 Howto & Style, 27 Education, 28 Science & Technology */
+  var YT_LEARNING_CATEGORY_IDS = { '26': true, '27': true, '28': true };
+
+  var youtubeLearningOnly = false;
+
+  function youtubeLearningFilterEnabled(r) {
+    return r.lt_youtube_learning_only !== false;
+  }
+
+  var domainGateEnabled = false;
+  var domainClassifyCache = Object.create(null);
+  var domainClassifyPending = null;
+  /** Count transport failures (runtime.lastError / sendMessage throw) per page — avoid caching false. */
+  var domainClassifyTransportFails = Object.create(null);
+  /** Last gate outcome for popup (same page key only). */
+  var lastDomainGateInfo = null;
+
+  function invalidateDomainClassifyCache() {
+    domainClassifyCache = Object.create(null);
+    domainClassifyPending = null;
+    domainClassifyTransportFails = Object.create(null);
+    lastDomainGateInfo = null;
+  }
+
+  function domainClassifyPageKey() {
+    if (isYouTube() && getYouTubeVideoId()) return 'yt:' + getYouTubeVideoId();
+    return 'url:' + getPageKey();
+  }
+
+  function refreshTrackingPrefs() {
+    try {
+      chrome.storage.local.get(['lt_youtube_learning_only', 'lt_domain_gate_enabled'], function (r) {
+        if (chrome.runtime.lastError) return;
+        youtubeLearningOnly = youtubeLearningFilterEnabled(r);
+        domainGateEnabled = r.lt_domain_gate_enabled === true;
+      });
+    } catch (e) {}
+  }
+  refreshTrackingPrefs();
+  try {
+    chrome.storage.onChanged.addListener(function (changes, area) {
+      if (area !== 'local') return;
+      if (changes.lt_youtube_learning_only) {
+        youtubeLearningOnly = changes.lt_youtube_learning_only.newValue !== false;
+      }
+      if (changes.lt_domain_gate_enabled) {
+        domainGateEnabled = changes.lt_domain_gate_enabled.newValue === true;
+        invalidateDomainClassifyCache();
+      }
+      if (changes.lt_domain_allowlist) {
+        invalidateDomainClassifyCache();
+      }
+    });
+  } catch (e) {}
+
+  function getYouTubeCategoryMeta() {
+    try {
+      var r = window.ytInitialPlayerResponse;
+      if (r && typeof r === 'object') {
+        var vd = r.videoDetails;
+        if (vd) {
+          var id = vd.categoryId != null ? String(vd.categoryId) : null;
+          var lab = vd.category != null ? String(vd.category) : null;
+          if (id || lab) return { id: id, label: lab };
+        }
+        var mf = r.microformat && r.microformat.playerMicroformatRenderer;
+        if (mf && mf.category) return { id: null, label: String(mf.category) };
+      }
+    } catch (e) {}
+    try {
+      var slice = document.documentElement.innerHTML;
+      if (slice.length > 3000000) slice = slice.slice(0, 3000000);
+      var m = slice.match(/"videoDetails"[\s\S]{0,1200}?"categoryId":"(\d+)"/);
+      if (m) return { id: m[1], label: null };
+    } catch (e2) {}
+    return { id: null, label: null };
+  }
+
+  function isYoutubeLearningCategoryOk() {
+    var meta = getYouTubeCategoryMeta();
+    if (meta.id) return !!YT_LEARNING_CATEGORY_IDS[meta.id];
+    var lab = (meta.label || '').toLowerCase();
+    if (!lab) return true;
+    if (lab.indexOf('education') !== -1) return true;
+    if (lab.indexOf('science') !== -1 && lab.indexOf('technolog') !== -1) return true;
+    if (lab.indexOf('howto') !== -1 || lab.indexOf('how-to') !== -1) return true;
+    if (lab.indexOf('how to') !== -1 && lab.indexOf('style') !== -1) return true;
+    if (
+      lab.indexOf('news') !== -1 ||
+      lab.indexOf('politics') !== -1 ||
+      lab.indexOf('entertainment') !== -1 ||
+      lab.indexOf('music') !== -1 ||
+      lab.indexOf('gaming') !== -1 ||
+      lab.indexOf('comedy') !== -1
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  function discardActiveVideoSession(reason) {
+    if (!session || session.manual) return;
+    if (lastState === 'playing') accumulateActiveSegment();
+    lastState = 'idle';
+    clearTimeout(titleRefreshTimer);
+    session = null;
+    console.log('[LT] Tracking not counted:', reason);
+  }
+
   var session = null;
   var lastState = 'idle'; // 'playing' | 'paused' | 'idle'
   var pollTimer = null;
@@ -243,8 +352,23 @@
     return session.totalPlayMs + extra;
   }
 
-  function onPlay() {
+  function onPlayInner() {
     if (lastState === 'playing') return;
+
+    if (
+      !domainGateEnabled &&
+      !session &&
+      isYouTube() &&
+      youtubeLearningOnly &&
+      !isYoutubeLearningCategoryOk()
+    ) {
+      var cm = getYouTubeCategoryMeta();
+      console.log(
+        '[LT] Skipping YouTube (not a learning category):',
+        cm.id || cm.label || 'unknown'
+      );
+      return;
+    }
 
     lastState = 'playing';
 
@@ -273,6 +397,83 @@
     }
   }
 
+  function maybeStartVideoSession() {
+    if (lastState === 'playing' && session) return;
+
+    var video = getVideoEl();
+    if (!video || video.paused || video.ended) return;
+
+    if (domainGateEnabled) {
+      var key = domainClassifyPageKey();
+      if (domainClassifyCache[key] === true) {
+        onPlayInner();
+        return;
+      }
+      if (domainClassifyCache[key] === false) return;
+      if (domainClassifyPending === key) return;
+      domainClassifyPending = key;
+      try {
+        chrome.runtime.sendMessage(
+          { type: 'LT_CLASSIFY_TRACK', title: getTitle(), url: location.href },
+          function (resp) {
+            domainClassifyPending = null;
+            if (chrome.runtime.lastError) {
+              domainClassifyTransportFails[key] = (domainClassifyTransportFails[key] || 0) + 1;
+              console.warn('[LT] Domain classify transport error:', chrome.runtime.lastError.message);
+              if (domainClassifyTransportFails[key] >= 8) {
+                console.warn('[LT] Domain classify failed repeatedly — allowing track (fail-open).');
+                domainClassifyTransportFails[key] = 0;
+                domainClassifyCache[key] = true;
+                var vOpen = getVideoEl();
+                if (vOpen && !vOpen.paused && !vOpen.ended) onPlayInner();
+              }
+              return;
+            }
+            domainClassifyTransportFails[key] = 0;
+            if (resp && resp.skipped) {
+              lastDomainGateInfo = null;
+              domainClassifyCache[key] = true;
+              onPlayInner();
+              return;
+            }
+            var ok = !!(resp && resp.track);
+            domainClassifyCache[key] = ok;
+            if (!ok) {
+              lastDomainGateInfo = {
+                pageKey: key,
+                classifiedDomain: (resp && resp.classifiedDomain) || '',
+                blockedByAllowlist: !!(resp && resp.blockedByAllowlist),
+                notLearning: !!(resp && resp.notLearning)
+              };
+              console.log(
+                '[LT] Skipping — domain gate.',
+                lastDomainGateInfo.blockedByAllowlist ? 'not in allowlist' : 'not learning'
+              );
+              return;
+            }
+            lastDomainGateInfo = null;
+            var v2 = getVideoEl();
+            if (!v2 || v2.paused || v2.ended) return;
+            if (!session) onPlayInner();
+            else if (lastState !== 'playing') onPlayInner();
+          }
+        );
+      } catch (e) {
+        domainClassifyPending = null;
+        domainClassifyTransportFails[key] = (domainClassifyTransportFails[key] || 0) + 1;
+        if (domainClassifyTransportFails[key] >= 8) {
+          domainClassifyTransportFails[key] = 0;
+          domainClassifyCache[key] = true;
+          var vEx = getVideoEl();
+          if (vEx && !vEx.paused && !vEx.ended) onPlayInner();
+        }
+      }
+      return;
+    }
+
+    onPlayInner();
+  }
+
   function poll() {
     if (session && session.manual) {
       noVideoStreak = 0;
@@ -290,6 +491,18 @@
     if (video && !video.paused && !video.ended) {
       noVideoStreak = 0;
 
+      if (
+        session &&
+        isYouTube() &&
+        youtubeLearningOnly &&
+        !domainGateEnabled &&
+        !session.manual &&
+        !isYoutubeLearningCategoryOk()
+      ) {
+        discardActiveVideoSession('youtube_non_learning_category');
+        return;
+      }
+
       if (session) {
         if (isYouTube()) {
           var vid = getYouTubeVideoId();
@@ -302,9 +515,9 @@
       }
 
       if (!session) {
-        onPlay();
+        maybeStartVideoSession();
       } else if (lastState !== 'playing') {
-        onPlay();
+        onPlayInner();
       } else {
         lastState = 'playing';
       }
@@ -335,6 +548,20 @@
   chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     if (msg.type === 'LT_GET_STATUS') {
       var ep = session && session.manual && session.exploredPages ? session.exploredPages.length : 0;
+      var kNow = domainClassifyPageKey();
+      var gatePayload = null;
+      if (
+        domainGateEnabled &&
+        lastDomainGateInfo &&
+        lastDomainGateInfo.pageKey === kNow
+      ) {
+        gatePayload = {
+          blockedByAllowlist: lastDomainGateInfo.blockedByAllowlist,
+          notLearning: lastDomainGateInfo.notLearning,
+          classifiedDomain: lastDomainGateInfo.classifiedDomain,
+          videoTitle: getTitle()
+        };
+      }
       sendResponse({
         playing: lastState === 'playing',
         paused: lastState === 'paused' && !!session,
@@ -343,7 +570,9 @@
         hasVideo: !!getVideoEl(),
         title: session ? session.title : '',
         elapsedMs: getElapsedMs(),
-        pagesExplored: ep
+        pagesExplored: ep,
+        domainGateEnabled: domainGateEnabled,
+        domainGate: gatePayload
       });
       return true;
     }
@@ -352,7 +581,7 @@
       return true;
     }
     if (msg.type === 'LT_MANUAL_START') {
-      onPlay();
+      onPlayInner();
     }
     if (msg.type === 'LT_MANUAL_STOP' || msg.type === 'LT_SESSION_COMPLETE') {
       endSession(msg.type === 'LT_SESSION_COMPLETE' ? 'manual_complete' : 'manual_stop', function (result) {
@@ -366,6 +595,7 @@
     var lastUrl = location.href;
 
     document.addEventListener('yt-navigate-finish', function () {
+      invalidateDomainClassifyCache();
       if (session) endSession('navigation');
       else lastState = 'idle';
       lastUrl = location.href;
@@ -376,6 +606,7 @@
     setInterval(function () {
       if (location.href === lastUrl) return;
       lastUrl = location.href;
+      invalidateDomainClassifyCache();
       if (session) endSession('url_change');
       else lastState = 'idle';
       noVideoStreak = 0;
@@ -385,6 +616,7 @@
     setInterval(function () {
       if (location.href === lastHrefNav) return;
       lastHrefNav = location.href;
+      invalidateDomainClassifyCache();
       if (session && session.manual) {
         recordExploredPage();
         noVideoStreak = 0;
