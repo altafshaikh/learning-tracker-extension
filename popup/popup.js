@@ -702,7 +702,7 @@ function renderPieChart(entries) {
     var pct = Math.round((e[1] / total) * 100);
     svg += '<rect x="138" y="' + (ly - 6) + '" width="8" height="8" rx="2" fill="' + colors[idx % colors.length] + '"/>';
     var label = e[0].length > 22 ? e[0].slice(0, 20) + '…' : e[0];
-    svg += '<text x="152" y="' + ly + '" fill="#eeedf0" font-size="10">' + label + ' · ' + pct + '%</text>';
+    svg += '<text x="152" y="' + ly + '" fill="#eeedf0" font-size="10">' + escHtml(label) + ' · ' + pct + '%</text>';
     ly += 16;
   });
   svg += '</svg>';
@@ -754,6 +754,8 @@ function renderSessions(sessions) {
     var e = s.enriched || {};
     var concept = e.concept || s.title || 'Unknown';
     var domain = e.domain || '';
+    var conceptEsc = escHtml(concept);
+    var domainEsc = domain ? escHtml(domain) : '';
     var dotCls = s.synced ? 'synced' : (s.enriched ? 'pending' : 'enriching');
         var syncBtn;
     if (!s.enriched) {
@@ -787,10 +789,10 @@ function renderSessions(sessions) {
     html += '<div class="session-row">' +
       '<div class="sdot ' + dotCls + '"></div>' +
       SESS_ICO +
-      '<div class="sinfo">' +
-        '<div class="sconcept" title="' + concept.replace(/"/g, '&quot;') + '">' + concept + '</div>' +
+        '<div class="sinfo">' +
+        '<div class="sconcept" title="' + escAttr(concept) + '">' + conceptEsc + '</div>' +
         '<div class="smeta">' +
-          (domain ? '<span class="sdomain" title="' + domain.replace(/"/g, '&quot;') + '">' + domain + '</span>' : '') +
+          (domain ? '<span class="sdomain" title="' + escAttr(domain) + '">' + domainEsc + '</span>' : '') +
           exploreMeta +
           (dur ? '<span title="Watch time">' + dur + '</span>' : '') +
           '<span title="' + (fmtAbsStart(s.startTime) || 'When recorded') + '">' + timeAgo(s.startTime) +
