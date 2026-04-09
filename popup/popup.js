@@ -953,6 +953,42 @@ function setSyncButton(count) {
   }
 }
 
+function updateManualTrackRow(resp, tabAllowsContentScript, contentScriptMissing) {
+  var row = document.getElementById('manual-track-row');
+  var btn = document.getElementById('btn-manual-video-track');
+  var hint = document.getElementById('manual-track-hint');
+  if (!row || !btn || !hint) return;
+  if (!tabAllowsContentScript) {
+    row.classList.add('hidden');
+    return;
+  }
+  row.classList.remove('hidden');
+  btn.textContent = 'Start tracking manually';
+  if (contentScriptMissing) {
+    btn.disabled = true;
+    hint.textContent = 'Reload this page if the extension was just updated so manual start can connect.';
+    return;
+  }
+  if (resp && resp.manualReading) {
+    btn.disabled = true;
+    hint.textContent = 'Finish or save your reading session before counting video time here.';
+    return;
+  }
+  if (resp && resp.sessionActive && resp.playing && resp.hasVideo && !resp.manualReading) {
+    btn.disabled = true;
+    btn.textContent = 'Recording';
+    hint.textContent = '';
+    return;
+  }
+  if (!resp || !resp.hasVideo) {
+    btn.disabled = true;
+    hint.textContent = 'Play a video on this page, then use this if automatic tracking did not start.';
+    return;
+  }
+  btn.disabled = false;
+  hint.textContent = 'Skips AI and the domain gate for this video. Use when classification fails.';
+}
+
 function nonLearningHintMessage(hint) {
   switch (String(hint || '').toLowerCase()) {
     case 'comedy':
@@ -1088,6 +1124,7 @@ function refreshLiveBar() {
   chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
     if (!tabs[0]) {
       updateDomainGateStrip(null);
+      updateManualTrackRow(null, false);
       resetTrackingBarIdle();
       setTrackingIdleVisible(false);
       return;
@@ -1095,6 +1132,7 @@ function refreshLiveBar() {
     var u = tabs[0].url || '';
     if (u.startsWith('chrome://') || u.startsWith('edge://') || u.startsWith('about:') || u.startsWith('devtools://')) {
       updateDomainGateStrip(null);
+      updateManualTrackRow(null, false);
       resetTrackingBarIdle();
       setTrackingIdleVisible(false);
       return;
@@ -1102,10 +1140,12 @@ function refreshLiveBar() {
     chrome.tabs.sendMessage(tabs[0].id, { type: 'LT_GET_STATUS' }, { frameId: 0 }, function(resp) {
       if (chrome.runtime.lastError) {
         updateDomainGateStrip(null);
+        updateManualTrackRow(null, true, true);
         resetTrackingBarIdle();
         setTrackingIdleVisible(false);
         return;
       }
+      updateManualTrackRow(resp, true);
       updateDomainGateStrip(resp);
       updateTrackingBarFromStatus(resp);
       var idleShow = resp && !resp.sessionActive && resp.hasVideo === false;
@@ -1456,6 +1496,37 @@ function sendStartManualRead() {
 }
 
 document.getElementById('btn-track-page-idle').addEventListener('click', sendStartManualRead);
+
+document.getElementById('btn-manual-video-track').addEventListener('click', function() {
+  chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+    if (!tabs[0]) return;
+    chrome.tabs.sendMessage(
+      tabs[0].id,
+      { type: 'LT_FORCE_START_VIDEO_TRACKING' },
+      { frameId: 0 },
+      function(r) {
+        if (chrome.runtime.lastError) {
+          alert(
+            'Could not reach this page. Use a normal tab (not chrome://), ensure the video page is loaded, and reload if the extension was just updated.'
+          );
+          return;
+        }
+        if (r && r.reason === 'manual_reading_active') {
+          alert('Finish or save your reading session first, then start video tracking.');
+          return;
+        }
+        if (r && r.reason === 'no_video') {
+          alert('No playable video found on this page. Start playback and try again.');
+          return;
+        }
+        setTimeout(function() {
+          refreshLiveBar();
+          load();
+        }, 200);
+      }
+    );
+  });
+});
 
 chrome.storage.onChanged.addListener(function(changes, areaName) {
   if (areaName !== 'local') return;

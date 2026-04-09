@@ -352,10 +352,12 @@
     return session.totalPlayMs + extra;
   }
 
-  function onPlayInner() {
+  /** @param {boolean} [force] — bypass YouTube category filter (manual start from popup). */
+  function onPlayInner(force) {
     if (lastState === 'playing') return;
 
     if (
+      !force &&
       !domainGateEnabled &&
       !session &&
       isYouTube() &&
@@ -588,6 +590,23 @@
     }
     if (msg.type === 'LT_MANUAL_START') {
       onPlayInner();
+    }
+    if (msg.type === 'LT_FORCE_START_VIDEO_TRACKING') {
+      if (session && session.manual) {
+        sendResponse({ ok: false, reason: 'manual_reading_active' });
+        return true;
+      }
+      var v0 = getVideoEl();
+      if (!v0 || v0.ended) {
+        sendResponse({ ok: false, reason: 'no_video' });
+        return true;
+      }
+      var kForce = domainClassifyPageKey();
+      domainClassifyCache[kForce] = true;
+      lastDomainGateInfo = null;
+      onPlayInner(true);
+      sendResponse({ ok: true, started: !!session });
+      return true;
     }
     if (msg.type === 'LT_MANUAL_STOP' || msg.type === 'LT_SESSION_COMPLETE') {
       endSession(msg.type === 'LT_SESSION_COMPLETE' ? 'manual_complete' : 'manual_stop', function (result) {

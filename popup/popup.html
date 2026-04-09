@@ -62,6 +62,13 @@
     .domain-gate-strip .btn-add-domain:hover{background:rgba(245,166,35,.12)}
     .domain-gate-strip .btn-add-domain:disabled{opacity:.5;cursor:not-allowed}
 
+    .manual-track-row{display:flex;flex-direction:column;align-items:stretch;gap:4px;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0}
+    .manual-track-row.hidden{display:none}
+    .btn-manual-track{width:100%;padding:8px 12px;border-radius:8px;border:1px solid rgba(62,207,142,.45);background:rgba(62,207,142,.1);color:var(--green);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit}
+    .btn-manual-track:hover:not(:disabled){background:rgba(62,207,142,.18)}
+    .btn-manual-track:disabled{opacity:.55;cursor:not-allowed;border-color:var(--border);color:var(--muted);background:var(--bg3)}
+    .manual-track-hint{font-size:10px;color:var(--muted);line-height:1.35}
+
     .tracking-idle{display:none;align-items:center;justify-content:space-between;gap:8px;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0;font-size:11px;color:var(--muted)}
     .tracking-idle.visible{display:flex}
     .tracking-idle-hint{flex:1;line-height:1.35}
@@ -230,7 +237,7 @@
       <div class="live-timer idle" id="live-timer">—</div>
     </div>
     <div class="tracking-actions">
-      <button type="button" class="stop-btn primary" id="btn-complete" title="Save this session now">Finish</button>
+      <button type="button" class="stop-btn primary" id="btn-complete" title="Stop and save this session">Stop</button>
     </div>
   </div>
 </div>
@@ -240,6 +247,11 @@
   <div class="domain-gate-actions">
     <button type="button" class="btn-add-domain" id="domain-gate-add-btn" style="display:none">Add to allow list</button>
   </div>
+</div>
+
+<div class="manual-track-row hidden" id="manual-track-row">
+  <button type="button" class="btn-manual-track" id="btn-manual-video-track" disabled>Start tracking manually</button>
+  <span class="manual-track-hint" id="manual-track-hint"></span>
 </div>
 
 <div class="tracking-idle" id="tracking-idle" aria-live="polite">
