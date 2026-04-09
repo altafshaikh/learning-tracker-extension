@@ -1,2 +1,8 @@
 node_modules/
 learning-tracker-extension.zip
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.py[cod]
