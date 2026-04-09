@@ -209,6 +209,7 @@ function buildSeries(sessions, range) {
   var now = new Date();
   var labels = [];
   var values = [];
+  var counts = [];
   var i;
   var j;
   if (range === 'day') {
@@ -218,6 +219,7 @@ function buildSeries(sessions, range) {
       else if (i === 12) labels.push('12p');
       else labels.push(i - 12 + 'p');
       values.push(0);
+      counts.push(0);
     }
     var start = new Date(now);
     start.setHours(0, 0, 0, 0);
@@ -227,6 +229,7 @@ function buildSeries(sessions, range) {
       if (s.startTime < start.getTime() || s.startTime >= end.getTime()) return;
       var hr = new Date(s.startTime).getHours();
       values[hr] += nMs(s.durationMs);
+      counts[hr]++;
     });
   } else if (range === 'week') {
     for (i = 6; i >= 0; i--) {
@@ -235,11 +238,15 @@ function buildSeries(sessions, range) {
       d.setDate(d.getDate() - i);
       labels.push(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()]);
       values.push(0);
+      counts.push(0);
       var key = d.toDateString();
       sessions.forEach(function(s) {
         var sd = new Date(s.startTime);
         sd.setHours(0, 0, 0, 0);
-        if (sd.toDateString() === key) values[values.length - 1] += nMs(s.durationMs);
+        if (sd.toDateString() === key) {
+          values[values.length - 1] += nMs(s.durationMs);
+          counts[values.length - 1]++;
+        }
       });
     }
   } else if (range === 'month') {
@@ -249,11 +256,15 @@ function buildSeries(sessions, range) {
       d2.setDate(d2.getDate() - j);
       labels.push(String(d2.getDate()));
       values.push(0);
+      counts.push(0);
       var key2 = d2.toDateString();
       sessions.forEach(function(s) {
         var sd2 = new Date(s.startTime);
         sd2.setHours(0, 0, 0, 0);
-        if (sd2.toDateString() === key2) values[values.length - 1] += nMs(s.durationMs);
+        if (sd2.toDateString() === key2) {
+          values[values.length - 1] += nMs(s.durationMs);
+          counts[values.length - 1]++;
+        }
       });
     }
   } else {
@@ -261,16 +272,20 @@ function buildSeries(sessions, range) {
       var dm = new Date(now.getFullYear(), now.getMonth() - j, 1);
       labels.push(dm.toLocaleString('en', { month: 'short' }));
       values.push(0);
+      counts.push(0);
       var y = dm.getFullYear();
       var mo = dm.getMonth();
       sessions.forEach(function(s) {
         var ds = new Date(s.startTime);
-        if (ds.getFullYear() === y && ds.getMonth() === mo) values[values.length - 1] += nMs(s.durationMs);
+        if (ds.getFullYear() === y && ds.getMonth() === mo) {
+          values[values.length - 1] += nMs(s.durationMs);
+          counts[values.length - 1]++;
+        }
       });
     }
   }
   var total = values.reduce(function(a, b) { return a + b; }, 0);
-  return { labels: labels, values: values, totalMs: total };
+  return { labels: labels, values: values, counts: counts, totalMs: total };
 }
 
 function compareYesterday(sessions) {
@@ -304,37 +319,359 @@ function buildDomainPie(sessions) {
   return Object.entries(map).sort(function(a, b) { return b[1] - a[1]; });
 }
 
-function renderLineChart(labels, values) {
+function seriesAverage(values) {
+  if (!values || !values.length) return 0;
+  var s = 0;
+  for (var i = 0; i < values.length; i++) s += values[i];
+  return s / values.length;
+}
+
+function thinTickIndices(sortedIdx, maxLabs) {
+  if (sortedIdx.length <= maxLabs) return sortedIdx;
+  var n = sortedIdx.length;
+  var out = [];
+  var seen = {};
+  for (var i = 0; i < maxLabs; i++) {
+    var j = Math.round((i / Math.max(1, maxLabs - 1)) * (n - 1));
+    var v = sortedIdx[j];
+    if (!seen[v]) {
+      seen[v] = 1;
+      out.push(v);
+    }
+  }
+  out.sort(function(a, b) { return a - b; });
+  return out;
+}
+
+function calculateOptimalLabels(range, cssWidth, values, labels) {
+  var maxLabs = Math.max(3, Math.min(12, Math.floor((cssWidth || 340) / 30)));
+  var n = (values && values.length) || 0;
+  var candidates = [];
+  var avg = seriesAverage(values);
+  var highThresh = avg * 1.5;
+
+  function pushUnique(arr) {
+    for (var i = 0; i < arr.length; i++) {
+      var x = arr[i];
+      if (x >= 0 && x < n && candidates.indexOf(x) === -1) candidates.push(x);
+    }
+  }
+
+  function addHighPriority() {
+    for (var i = 0; i < n; i++) {
+      if (values[i] >= highThresh && values[i] > 0 && candidates.indexOf(i) === -1) candidates.push(i);
+    }
+  }
+
+  if (range === 'day') {
+    var step = maxLabs >= 8 ? 3 : (maxLabs >= 4 ? 6 : 12);
+    if (step === 12) pushUnique([6, 12, 18]);
+    else for (var h = 0; h < 24; h += step) candidates.push(h);
+    addHighPriority();
+  } else if (range === 'week') {
+    if (maxLabs >= 7) for (var d = 0; d < 7; d++) candidates.push(d);
+    else if (maxLabs >= 4) pushUnique([0, 2, 4, 6]);
+    else pushUnique([1, 3, 5]);
+    addHighPriority();
+  } else if (range === 'month') {
+    if (maxLabs >= 10) for (var k = 0; k < n; k += 5) candidates.push(k);
+    else if (maxLabs >= 5) for (var k2 = 0; k2 < n; k2 += 7) candidates.push(k2);
+    else pushUnique([0, 9, 19, 29]);
+    addHighPriority();
+  } else {
+    if (maxLabs >= 12) for (var m = 0; m < n; m++) candidates.push(m);
+    else if (maxLabs >= 5) pushUnique([0, 3, 6, 9]);
+    else pushUnique([0, 3, 6, 9]);
+    addHighPriority();
+  }
+
+  candidates.sort(function(a, b) { return a - b; });
+  var uniq = [];
+  var seen = {};
+  for (var u = 0; u < candidates.length; u++) {
+    var c = candidates[u];
+    if (seen[c]) continue;
+    seen[c] = 1;
+    uniq.push(c);
+  }
+  uniq = thinTickIndices(uniq, maxLabs);
+
+  var useQuarter = range === 'year' && maxLabs < 5;
+  var qLabs = { 0: 'Q1', 3: 'Q2', 6: 'Q3', 9: 'Q4' };
+  return uniq.map(function(i) {
+    var lab = labels[i] != null ? String(labels[i]) : String(i);
+    if (useQuarter && qLabs[i] != null) lab = qLabs[i];
+    return { index: i, label: lab };
+  });
+}
+
+function monthBucketDate(idx) {
+  var d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - (29 - idx));
+  return d;
+}
+
+function yearBucketDate(idx) {
+  var now = new Date();
+  return new Date(now.getFullYear(), now.getMonth() - (11 - idx), 1);
+}
+
+function escSvgText(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function formatLineChartTooltip(idx, range, values, counts, labels, totalMs) {
+  var v = values[idx] || 0;
+  var dur = fmtShortDur(v);
+  var tot = nMs(totalMs);
+  var pct = tot > 0 ? Math.round((v / tot) * 100) : 0;
+  var c = counts[idx] || 0;
+
+  if (range === 'day') {
+    var d = new Date();
+    d.setHours(idx, 0, 0, 0);
+    var atHour = d.toLocaleTimeString(undefined, { hour: 'numeric', hour12: true });
+    var dayPart = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    return dur + ' at ' + atHour + ' (' + dayPart + ')';
+  }
+  if (range === 'week') {
+    var name = labels[idx] || 'Day';
+    return dur + ' · ' + name + ' · ' + pct + '% of week';
+  }
+  if (range === 'month') {
+    var md = monthBucketDate(idx);
+    var dateStr = md.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    return dur + ' on ' + dateStr + ' (' + c + ' session' + (c === 1 ? '' : 's') + ')';
+  }
+  var ym = yearBucketDate(idx);
+  var mon = labels[idx] || ym.toLocaleString('en', { month: 'short' });
+  return dur + ' in ' + mon + ' (' + pct + '% of year)';
+}
+
+function buildLineChartSvg(range, labels, values, cssWidth) {
   var w = 340;
   var h = 120;
-  var padL = 28;
-  var padR = 8;
-  var padT = 8;
-  var padB = 18;
+  var padL = 36;
+  var padR = 10;
+  var padT = 10;
+  var padB = 22;
   var innerW = w - padL - padR;
   var innerH = h - padT - padB;
-  var max = Math.max(1, values.reduce(function(a, b) { return Math.max(a, b); }, 0));
+  var maxV = Math.max(1, values.reduce(function(a, b) { return Math.max(a, b); }, 0));
   var n = values.length;
   var pts = [];
   var i;
   for (i = 0; i < n; i++) {
     var x = padL + (n <= 1 ? innerW / 2 : (i / (n - 1)) * innerW);
-    var y = padT + innerH - (values[i] / max) * innerH;
+    var y = padT + innerH - (values[i] / maxV) * innerH;
     pts.push({ x: x, y: y });
   }
   var lineD = pts.map(function(p, idx) { return (idx === 0 ? 'M' : 'L') + p.x.toFixed(1) + ' ' + p.y.toFixed(1); }).join(' ');
-  var areaD = lineD + ' L' + pts[pts.length - 1].x.toFixed(1) + ' ' + (padT + innerH) + ' L' + pts[0].x.toFixed(1) + ' ' + (padT + innerH) + ' Z';
+  var areaD =
+    lineD +
+    ' L' +
+    pts[pts.length - 1].x.toFixed(1) +
+    ' ' +
+    (padT + innerH) +
+    ' L' +
+    pts[0].x.toFixed(1) +
+    ' ' +
+    (padT + innerH) +
+    ' Z';
 
-  var svg = '<svg viewBox="0 0 ' + w + ' ' + h + '" xmlns="http://www.w3.org/2000/svg">';
-  svg += '<defs><linearGradient id="lg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#8b7cf8" stop-opacity="0.35"/><stop offset="100%" stop-color="#8b7cf8" stop-opacity="0"/></linearGradient></defs>';
-  svg += '<path d="' + areaD + '" fill="url(#lg)"/>';
-  svg += '<path d="' + lineD + '" fill="none" stroke="#a78bfa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
-  for (i = 0; i < pts.length; i++) {
-    svg += '<circle cx="' + pts[i].x + '" cy="' + pts[i].y + '" r="3" fill="#3ecf8e" stroke="#0e0f12" stroke-width="1"/>';
+  var axisTicks = calculateOptimalLabels(range, cssWidth, values, labels);
+  var gid = 'ltLg' + String(Math.random()).slice(2, 10);
+
+  var svg = '<svg class="lt-line-chart" viewBox="0 0 ' + w + ' ' + h + '" xmlns="http://www.w3.org/2000/svg" aria-label="Watch time trend">';
+  svg +=
+    '<defs><linearGradient id="' +
+    gid +
+    '" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#8b7cf8" stop-opacity="0.35"/><stop offset="100%" stop-color="#8b7cf8" stop-opacity="0"/></linearGradient></defs>';
+
+  for (i = 0; i < axisTicks.length; i++) {
+    var ti = axisTicks[i].index;
+    var gx = pts[ti].x;
+    svg +=
+      '<line x1="' +
+      gx.toFixed(1) +
+      '" y1="' +
+      padT +
+      '" x2="' +
+      gx.toFixed(1) +
+      '" y2="' +
+      (padT + innerH) +
+      '" stroke="rgba(255,255,255,0.08)" stroke-width="0.5"/>';
   }
-  svg += '<text x="' + padL + '" y="' + (h - 4) + '" fill="#7c7e8a" font-size="8">' + fmtShortDur(max) + '</text>';
+
+  svg += '<path d="' + areaD + '" fill="url(#' + gid + ')"/>';
+  svg +=
+    '<path d="' +
+    lineD +
+    '" fill="none" stroke="#a78bfa" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
+
+  svg +=
+    '<text x="' +
+    (padL - 4) +
+    '" y="' +
+    (padT + 8) +
+    '" fill="#7c7e8a" font-size="8" text-anchor="end">' +
+    escSvgText(fmtShortDur(maxV)) +
+    '</text>';
+  svg +=
+    '<text x="' +
+    (padL - 4) +
+    '" y="' +
+    (padT + innerH) +
+    '" fill="#7c7e8a" font-size="8" text-anchor="end">0</text>';
+
+  for (i = 0; i < axisTicks.length; i++) {
+    var t = axisTicks[i];
+    var xi = pts[t.index].x;
+    var anchor = 'middle';
+    if (n > 1) {
+      if (t.index === 0) anchor = 'start';
+      if (t.index === n - 1) anchor = 'end';
+    }
+    svg +=
+      '<text x="' +
+      xi.toFixed(1) +
+      '" y="' +
+      (h - 4) +
+      '" fill="#7c7e8a" font-size="8" text-anchor="' +
+      anchor +
+      '">' +
+      escSvgText(t.label) +
+      '</text>';
+  }
+
+  for (i = 0; i < pts.length; i++) {
+    svg +=
+      '<circle cx="' +
+      pts[i].x.toFixed(1) +
+      '" cy="' +
+      pts[i].y.toFixed(1) +
+      '" r="3" fill="#3ecf8e" stroke="#0e0f12" stroke-width="1" pointer-events="none"/>';
+  }
+  for (i = 0; i < pts.length; i++) {
+    svg +=
+      '<circle class="chart-point-hit" data-lt-i="' +
+      i +
+      '" cx="' +
+      pts[i].x.toFixed(1) +
+      '" cy="' +
+      pts[i].y.toFixed(1) +
+      '" r="10" fill="transparent" stroke="none" tabindex="0"/>';
+  }
   svg += '</svg>';
   return svg;
+}
+
+var chartHoverTimer = null;
+
+function mountLineChart(wrap, range, series) {
+  if (chartHoverTimer) {
+    clearTimeout(chartHoverTimer);
+    chartHoverTimer = null;
+  }
+  while (wrap.firstChild) wrap.removeChild(wrap.firstChild);
+
+  var tip = document.createElement('div');
+  tip.className = 'chart-line-tooltip';
+  tip.id = 'chart-line-tooltip';
+  tip.setAttribute('role', 'tooltip');
+  tip.setAttribute('aria-hidden', 'true');
+
+  var inner = document.createElement('div');
+  inner.className = 'chart-svg-inner';
+
+  var cssW = wrap.getBoundingClientRect().width;
+  if (!cssW || cssW < 80) cssW = 340;
+
+  var svgStr = buildLineChartSvg(range, series.labels, series.values, cssW);
+  inner.innerHTML = svgStr;
+
+  wrap.appendChild(tip);
+  wrap.appendChild(inner);
+
+  var svg = inner.querySelector('svg');
+  if (!svg) return;
+
+  function showTip(idx, clientX, clientY) {
+    if (chartHoverTimer) {
+      clearTimeout(chartHoverTimer);
+      chartHoverTimer = null;
+    }
+    var i = parseInt(idx, 10);
+    if (isNaN(i)) return;
+    tip.textContent = formatLineChartTooltip(
+      i,
+      range,
+      series.values,
+      series.counts || [],
+      series.labels,
+      series.totalMs
+    );
+    tip.classList.add('visible');
+    tip.setAttribute('aria-hidden', 'false');
+
+    var wr = wrap.getBoundingClientRect();
+    var lx = clientX - wr.left;
+    var ly = clientY - wr.top;
+    tip.style.left = lx + 'px';
+    tip.style.top = ly + 'px';
+    tip.style.transform = 'translate(-50%, calc(-100% - 10px))';
+
+    requestAnimationFrame(function() {
+      var tw = tip.offsetWidth;
+      var th = tip.offsetHeight;
+      var pad = 6;
+      var nx = lx;
+      var ny = ly - th - 10;
+      if (nx - tw / 2 < pad) nx = tw / 2 + pad;
+      if (nx + tw / 2 > wr.width - pad) nx = wr.width - tw / 2 - pad;
+      if (ny < pad) ny = ly + 14;
+      tip.style.left = nx + 'px';
+      tip.style.top = ny + 'px';
+      tip.style.transform = 'translate(-50%, 0)';
+    });
+  }
+
+  function hideTipImmediate() {
+    if (chartHoverTimer) {
+      clearTimeout(chartHoverTimer);
+      chartHoverTimer = null;
+    }
+    tip.classList.remove('visible');
+    tip.setAttribute('aria-hidden', 'true');
+  }
+
+  function onEnter(ev) {
+    var el = ev.target.closest && ev.target.closest('[data-lt-i]');
+    if (!el || !svg.contains(el)) return;
+    showTip(el.getAttribute('data-lt-i'), ev.clientX, ev.clientY);
+  }
+
+  function onMove(ev) {
+    var el = ev.target.closest && ev.target.closest('[data-lt-i]');
+    if (!el || !svg.contains(el)) return;
+    showTip(el.getAttribute('data-lt-i'), ev.clientX, ev.clientY);
+  }
+
+  svg.addEventListener('mouseover', onEnter);
+  svg.addEventListener('mousemove', onMove);
+  svg.addEventListener('mouseleave', hideTipImmediate);
+
+  svg.querySelectorAll('[data-lt-i]').forEach(function(c) {
+    c.addEventListener('focus', function() {
+      var r = c.getBoundingClientRect();
+      showTip(c.getAttribute('data-lt-i'), r.left + r.width / 2, r.top);
+    });
+    c.addEventListener('blur', hideTipImmediate);
+  });
 }
 
 function renderPieChart(entries) {
@@ -390,10 +727,14 @@ function updateChart() {
   }
 
   if (chartMode === 'pie') {
+    if (chartHoverTimer) {
+      clearTimeout(chartHoverTimer);
+      chartHoverTimer = null;
+    }
     var pie = lastDomainPieWeek.length ? lastDomainPieWeek : buildDomainPie(lastSessionsFull);
     wrap.innerHTML = renderPieChart(pie);
   } else {
-    wrap.innerHTML = renderLineChart(series.labels, series.values);
+    mountLineChart(wrap, chartRange, series);
   }
 }
 

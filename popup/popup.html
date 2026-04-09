@@ -85,8 +85,12 @@
     .chart-metric{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px;font-size:12px}
     .chart-metric .big{font-size:22px;font-weight:700;color:var(--text)}
     .chart-metric .delta{color:var(--muted);font-size:11px}
-    .chart-svg-wrap{width:100%;height:120px;margin-top:4px}
+    .chart-svg-wrap{position:relative;width:100%;height:120px;margin-top:4px}
+    .chart-svg-inner{width:100%;height:100%}
     .chart-svg-wrap svg{width:100%;height:100%;display:block}
+    .chart-line-tooltip{position:absolute;z-index:5;pointer-events:none;left:0;top:0;box-sizing:border-box;width:max-content;max-width:280px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;font-size:11px;line-height:1.4;color:var(--text);box-shadow:0 4px 12px rgba(0,0,0,.3);opacity:0;visibility:hidden;transition:opacity .2s ease,visibility .2s ease;white-space:nowrap;word-break:normal;overflow:hidden;text-overflow:ellipsis}
+    .chart-line-tooltip.visible{opacity:1;visibility:visible}
+    .chart-point-hit{cursor:crosshair}
     .chart-mode-row{display:flex;gap:8px;margin-top:10px}
     .mode-btn{flex:1;padding:7px;border:1px solid var(--border);border-radius:20px;background:var(--bg3);color:var(--muted);font-size:11px;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:5px}
     .mode-btn.active{color:var(--purple);border-color:rgba(139,124,248,.4)}
