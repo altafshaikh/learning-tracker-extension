@@ -34,6 +34,17 @@ export async function updateSession(id, patch) {
   return null;
 }
 
+export async function deleteSession(id) {
+  var sessions = await getSessions();
+  var idx = sessions.findIndex(function(s) { return s.id === id; });
+  if (idx !== -1) {
+    sessions.splice(idx, 1);
+    await set('lt_sessions', sessions);
+    return true;
+  }
+  return false;
+}
+
 export async function getSettings() {
   var keys = ['lt_groq_key', 'lt_model', 'lt_form_url', 'lt_auto_submit', 'lt_form_email'];
   return new Promise(function(resolve) {

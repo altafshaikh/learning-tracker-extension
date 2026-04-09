@@ -79,7 +79,7 @@ content/video-tracker.js  ──LT_SESSION_END──►  background/service-work
 
 | Issue                                               | What to check                                                                                                                                                                                         |
 | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Nothing is captured on YouTube                      | Reload the watch page after updating the extension. Ensure the video is actually playing (not only the tab open). **Pause** or **leave the tab** after 30+ seconds of play to finalize a session.     |
+| Nothing is captured on YouTube                      | Any **playing** video on a watch page should start a session (same as other sites). Reload the watch page after updating the extension. **Pause**, **Finish** in the popup, or **navigate away** after 30+ seconds of play to save the session. |
 | Popup shows “Play any video…” while a video is open | You should see a **completed** session only after a pause/navigation. If stats stay at zero after that, open DevTools → Console on the YouTube page and look for `[LT]` logs from the content script. |
 | Groq / insights                                     | Add a valid API key in Options. Without a key, enrichment is skipped; sync still needs enriched sessions for the default unsynced filter.                                                             |
 | Form sync doesn’t run                               | Set a valid Google Form URL. Ensure sessions appear as **enriched** (purple dot) before they count as unsynced for sync.                                                                              |
@@ -147,6 +147,36 @@ This watches extension sources and prints a reminder to Reload in `chrome://exte
 | `test/*.test.mjs`                     | `npm test` — video discovery + defaults seeding.                                    |
 | `scripts/dev-reload-hint.js`          | Printed when `npm run dev` detects file changes.                                    |
 
+
+## Publishing to Chrome Web Store (Internal / Unlisted)
+
+You can deploy the extension to the Chrome Web Store as an **Unlisted** extension. This allows you to share it internally with your organization without it appearing in public search results.
+
+### First-Time Deployment
+
+1. Package the extension into a ZIP file:
+   ```bash
+   zip -r learning-tracker-extension.zip manifest.json background content options popup utils icons config -x "*.DS_Store"
+   ```
+2. Go to the [Chrome Developer Dashboard](https://chrome.google.com/webstore/devconsole/) and register for a Developer Account (requires a one-time $5 fee).
+3. Click **New Item** and upload `learning-tracker-extension.zip`.
+4. Fill out the Store Listing (Title, Description, Category, Store Icon 128x128, and a screenshot).
+5. For Privacy & Permissions, explain that the extension needs:
+   - `storage`: To save learning sessions locally.
+   - `scripting`/`host_permissions`: To identify video titles and read learning platform URLs.
+6. Under **Distribution** / **Visibility**, select **Unlisted**.
+7. Click **Submit for Review**. Once approved, you will get a direct link to share with your team.
+
+### Pushing Updates
+
+1. Make your code enhancements.
+2. Open `manifest.json` and increment the `"version"` number (e.g., from `"1.0.0"` to `"1.0.1"`). *Google requires a higher version number for every update.*
+3. Re-package the extension:
+   ```bash
+   zip -r learning-tracker-extension.zip manifest.json background content options popup utils icons config -x "*.DS_Store"
+   ```
+4. Go to your item in the Developer Dashboard, navigate to the **Package** tab, and click **Upload new package**.
+5. Submit for review. Chrome will automatically update the extension for your users once approved.
 
 ## License
 

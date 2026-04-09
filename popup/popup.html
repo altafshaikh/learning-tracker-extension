@@ -151,7 +151,11 @@
     .sessions-area::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
     .session-row{display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)}
     .session-row:last-child{border-bottom:none}
-    .sess-sync-wrap{flex-shrink:0;margin-left:auto;padding-top:1px}
+    .sess-actions{display:flex;align-items:center;gap:4px;flex-shrink:0;margin-left:auto;padding-top:1px}
+    .sess-delete-btn{min-width:26px;height:26px;border-radius:6px;border:none;background:transparent;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:all 0.2s}
+    .sess-delete-btn:hover{background:rgba(232,93,93,.1);color:var(--red)}
+    .sess-delete-btn.confirm-delete{padding:0 8px;color:var(--red);background:rgba(232,93,93,.15);font-size:10px;font-weight:600}
+    .sess-trash-ico{width:14px;height:14px;display:block}
     .sess-sync-btn{width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;font:inherit}
     .sess-sync-btn:hover:not(:disabled){background:var(--bg2);color:var(--green);border-color:rgba(62,207,142,.35)}
     .sess-sync-btn.synced{color:var(--green);border-color:rgba(62,207,142,.28)}

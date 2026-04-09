@@ -21,6 +21,8 @@ var SESS_ICO = '<svg class="sess-ico" viewBox="0 0 24 24" fill="none" stroke="cu
 var SESS_SYNC_ARROW = '<svg class="sess-sync-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36M20.49 15a9 9 0 01-14.85 3.36"/></svg>';
 var SESS_SYNC_CHECK = '<svg class="sess-sync-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>';
 
+var SESS_TRASH_ICO = '<svg class="sess-trash-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
+
 function msg(type, extra) {
   return new Promise(function(resolve) {
     chrome.runtime.sendMessage(Object.assign({ type: type }, extra || {}), function(r) {
@@ -177,6 +179,7 @@ function computeLongestSession(sessions) {
   if (!sessions || !sessions.length) return null;
   var best = null;
   sessions.forEach(function(s) {
+    if (!s) return;
     var d = nMs(s.durationMs);
     if (d < 30000) return;
     if (!best || d > best.durationMs) {
@@ -401,24 +404,29 @@ function renderSessions(sessions) {
     el.innerHTML = '<div class="empty-sessions"><div class="empty-svg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><path d="M8 7h8M8 11h6"/></svg></div>Play a video to start tracking.</div>';
     return;
   }
-  el.innerHTML = sessions.slice(0, 20).map(function(s) {
+  
+  var html = '';
+  for (var i = 0; i < Math.min(sessions.length, 20); i++) {
+    var s = sessions[i];
+    if (!s) continue;
+    
     var e = s.enriched || {};
     var concept = e.concept || s.title || 'Unknown';
     var domain = e.domain || '';
     var dotCls = s.synced ? 'synced' : (s.enriched ? 'pending' : 'enriching');
-    var syncBtn;
+        var syncBtn;
     if (!s.enriched) {
       syncBtn =
-        '<div class="sess-sync-wrap"><button type="button" class="sess-sync-btn" disabled data-session-id="' +
-        escAttr(s.id) + '" title="Wait for AI enrichment before syncing">' + SESS_SYNC_ARROW + '</button></div>';
+        '<button type="button" class="sess-sync-btn" disabled data-session-id="' +
+        escAttr(s.id) + '" title="Wait for AI enrichment before syncing">' + SESS_SYNC_ARROW + '</button>';
     } else if (s.synced) {
       syncBtn =
-        '<div class="sess-sync-wrap"><button type="button" class="sess-sync-btn synced" data-session-id="' +
-        escAttr(s.id) + '" data-synced="1" title="Synced to form — click to re-sync">' + SESS_SYNC_CHECK + '</button></div>';
+        '<button type="button" class="sess-sync-btn synced" data-session-id="' +
+        escAttr(s.id) + '" data-synced="1" title="Synced to form — click to re-sync">' + SESS_SYNC_CHECK + '</button>';
     } else {
       syncBtn =
-        '<div class="sess-sync-wrap"><button type="button" class="sess-sync-btn" data-session-id="' +
-        escAttr(s.id) + '" data-synced="0" title="Send this session to your Google Form">' + SESS_SYNC_ARROW + '</button></div>';
+        '<button type="button" class="sess-sync-btn" data-session-id="' +
+        escAttr(s.id) + '" data-synced="0" title="Send this session to your Google Form">' + SESS_SYNC_ARROW + '</button>';
     }
     var dur = s.durationMs ? fmtHours(s.durationMs) : '';
     var pages = Array.isArray(s.exploredPages) ? s.exploredPages : [];
@@ -433,7 +441,9 @@ function renderSessions(sessions) {
     } else if (s.manualReading) {
       exploreMeta = '<span class="sdomain" title="Tracked with Track this page">Reading</span>';
     }
-    return '<div class="session-row">' +
+    var deleteBtn = '<button type="button" class="sess-delete-btn" data-session-id="' + escAttr(s.id) + '" title="Delete session">' + SESS_TRASH_ICO + '</button>';
+
+    html += '<div class="session-row">' +
       '<div class="sdot ' + dotCls + '"></div>' +
       SESS_ICO +
       '<div class="sinfo">' +
@@ -446,9 +456,13 @@ function renderSessions(sessions) {
           (fmtAbsStart(s.startTime) ? ' · ' + fmtAbsStart(s.startTime) : '') + '</span>' +
         '</div>' +
       '</div>' +
-      syncBtn +
+      '<div class="sess-actions">' +
+        deleteBtn +
+        syncBtn +
+      '</div>' +
     '</div>';
-  }).join('');
+  }
+  el.innerHTML = html;
 }
 
 function domainPairs30d(data) {
@@ -890,6 +904,36 @@ document.getElementById('btn-sync').addEventListener('click', function() {
 
 var singleSessionSyncBusy = false;
 document.getElementById('sessions-list').addEventListener('click', function(ev) {
+  var deleteBtn = ev.target.closest('.sess-delete-btn');
+  if (deleteBtn) {
+    var did = deleteBtn.getAttribute('data-session-id');
+    if (!did) return;
+    
+    if (!deleteBtn.classList.contains('confirm-delete')) {
+      deleteBtn.classList.add('confirm-delete');
+      var oldHtml = deleteBtn.innerHTML;
+      deleteBtn.innerHTML = 'Sure?';
+      deleteBtn.dataset.oldHtml = oldHtml;
+      setTimeout(function() {
+        if (deleteBtn.classList.contains('confirm-delete')) {
+          deleteBtn.classList.remove('confirm-delete');
+          deleteBtn.innerHTML = deleteBtn.dataset.oldHtml || oldHtml;
+        }
+      }, 3000);
+      return;
+    }
+
+    deleteBtn.innerHTML = '...';
+    msg('LT_DELETE_SESSION', { sessionId: did }).then(function(res) {
+      if (res && res.ok) load();
+    }).catch(function(err) {
+      console.error("Delete session failed:", err);
+      deleteBtn.classList.remove('confirm-delete');
+      deleteBtn.innerHTML = deleteBtn.dataset.oldHtml || '';
+    });
+    return;
+  }
+
   var syncB = ev.target.closest('.sess-sync-btn');
   if (!syncB || syncB.disabled || singleSessionSyncBusy) return;
   var sid = syncB.getAttribute('data-session-id');

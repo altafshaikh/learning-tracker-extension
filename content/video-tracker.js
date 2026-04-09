@@ -4,6 +4,11 @@
 
 (function () {
   if (window.__ltActive) return;
+  var h = window.location.hostname;
+  if (h.includes('meet.google.com') || h.includes('zoom.us')) {
+    console.log('[LT] Tracking disabled on meeting platforms');
+    return;
+  }
   if (typeof globalThis.__ltGetAllVideoElements !== 'function' ||
       typeof globalThis.__ltPickPrimaryVideo !== 'function') {
     console.error('[LT] Missing utils/video-discovery.js — check manifest script order');
@@ -296,7 +301,9 @@
         }
       }
 
-      if (!session || lastState !== 'playing') {
+      if (!session) {
+        onPlay();
+      } else if (lastState !== 'playing') {
         onPlay();
       } else {
         lastState = 'playing';

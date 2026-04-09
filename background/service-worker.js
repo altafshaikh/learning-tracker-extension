@@ -1,6 +1,6 @@
 // background/service-worker.js
 import {
-  addSession, updateSession, getSessions,
+  addSession, updateSession, getSessions, deleteSession,
   getSettings, getUnsyncedSessions, getWeekStats,
   getStreak, bumpStreak, generateId,
   getInsights, saveInsights
@@ -231,6 +231,13 @@ async function handle(msg, sender) {
       yearProgressPct: yp,
       insightContext: ctxSnap
     };
+  }
+
+  // Popup: delete a session
+  if (msg.type === 'LT_DELETE_SESSION') {
+    var ok = await deleteSession(msg.sessionId);
+    await updateBadge();
+    return { ok: ok };
   }
 
   // Popup: manually trigger Groq insights refresh
