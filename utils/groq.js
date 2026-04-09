@@ -164,12 +164,72 @@ function parseOptionalCatalogLine(raw, catalog) {
   return resolveAllowlistDomain(String(raw).trim(), catalog);
 }
 
+var NON_LEARNING_HINT_WHITELIST = {
+  entertainment: true,
+  comedy: true,
+  news: true,
+  gaming: true,
+  music: true,
+  sports: true,
+  other: true
+};
+
+function normalizeNonLearningHint(raw) {
+  if (raw == null || raw === '' || String(raw).toLowerCase() === 'null') return null;
+  var s = String(raw)
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_');
+  if (s === 'stand_up' || s === 'standup' || s === 'stand_up_comedy') return 'comedy';
+  if (NON_LEARNING_HINT_WHITELIST[s]) return s;
+  return null;
+}
+
+/**
+ * Cheap local fallback when Groq omits non_learning_hint (e.g. comedy titles).
+ */
+export function inferNonLearningHintFromTitle(title) {
+  var text = String(title || '').toLowerCase();
+  if (!text.trim()) return null;
+  if (
+    /stand[\s-]?up|standup|\bcomedy\b|comedian|sketch\s+comedy|funny\s+video|roast(\s|$)|open\s+mic/.test(
+      text
+    )
+  ) {
+    return 'comedy';
+  }
+  if (/\bgaming\b|gameplay|lets\s+play|walkthrough|speedrun|minecraft\b|fortnite\b|valorant\b/.test(text)) {
+    return 'gaming';
+  }
+  if (/\bnews\b|breaking\s+news|press\s+conference|headlines\s+today/.test(text)) return 'news';
+  if (
+    /\bhighlights\b.*\b(nba|nfl|fifa|goal|match)|\bespn\b|\bsports\b\s+centre|premier\s+league/.test(text)
+  ) {
+    return 'sports';
+  }
+  if (/\bmusic\s+video\b|\bofficial\s+video\b.*\b(song|single)\b|\blyrics\b|\balbum\b.*\b(trailer|teaser)\b/.test(
+    text
+  )) {
+    return 'music';
+  }
+  if (/\bnetflix\b|\breality\s+tv\b|\b(?:movie|film)\s+trailer\b/.test(text)) {
+    return 'entertainment';
+  }
+  return null;
+}
+
+function resolveNonLearningHint(parsed, title) {
+  var local = inferNonLearningHintFromTitle(title);
+  if (local) return local;
+  return normalizeNonLearningHint(parsed.non_learning_hint);
+}
+
 /**
  * Classify video title into one catalog domain; recording is allowed only if that domain is in allowlist.
- * Groq returns JSON: { "domain": "<exact catalog line>" | null, "predicted_domain": "<exact line>" | null }.
- * predicted_domain = best topic fit when domain is null (borderline / not strict learning), for user override.
+ * Groq returns JSON: domain, predicted_domain, optional non_learning_hint when not learning.
  */
 export async function classifyTrackAllowlist(apiKey, title, url, model, allowlist) {
+  var titlePlain = String(title || '');
   if (!allowlist || !allowlist.length) {
     return {
       track: false,
@@ -178,7 +238,8 @@ export async function classifyTrackAllowlist(apiKey, title, url, model, allowlis
       blockedByAllowlist: false,
       notLearning: false,
       predictedDomain: null,
-      predictedAlreadyAllowed: false
+      predictedAlreadyAllowed: false,
+      nonLearningHint: null
     };
   }
   var catalog = buildClassificationCatalog(allowlist);
@@ -190,11 +251,12 @@ export async function classifyTrackAllowlist(apiKey, title, url, model, allowlis
       blockedByAllowlist: false,
       notLearning: false,
       predictedDomain: null,
-      predictedAlreadyAllowed: false
+      predictedAlreadyAllowed: false,
+      nonLearningHint: null
     };
   }
 
-  var safeTitle = String(title || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').slice(0, 500);
+  var safeTitle = titlePlain.replace(/\\/g, '\\\\').replace(/"/g, '\\"').slice(0, 500);
   var lines = catalog.map(function (d, i) {
     return String(i + 1) + '. ' + String(d);
   }).join('\n');
@@ -218,44 +280,94 @@ export async function classifyTrackAllowlist(apiKey, title, url, model, allowlis
     '\n\nDomains currently allowed for recording in the user\'s settings:\n' +
     allowedLines +
     '\n\nReturn ONLY valid JSON, no other text:\n' +
-    '{"domain": "<exact string from the numbered list above>" | null}\n\n' +
+    '{"domain": "<exact string from the numbered list above>" | null, ' +
+    '"predicted_domain": "<exact string from the numbered list above>" | null, ' +
+    '"non_learning_hint": "comedy" | "entertainment" | "news" | "gaming" | "music" | "sports" | "other" | null}\n\n' +
     'Rules:\n' +
-    '- "domain" must be an exact copy of one numbered line, or null.\n' +
-    '- Use null for news, entertainment, gaming, music, sports, gossip, or non-learning content.\n' +
-    '- Tutorials, courses, tech talks, coding, AI/agents, APIs, DevOps, compliance, leadership, communication → pick the matching line.\n' +
-    '- Ignore whether the domain is in the allowed list when choosing "domain"; the extension applies that separately.';
+    '- "domain": exact copy of one numbered line only for clear intentional workplace/professional learning; otherwise null.\n' +
+    '- "predicted_domain": best-matching numbered line for the title\'s subject (tech, business, soft skills, etc.) whenever there is a plausible fit — ' +
+    'including when "domain" is null because the video is borderline, ambiguous, or you are being strict. ' +
+    'If the title is pure entertainment/news/gaming/music/sports with no plausible domain, set both to null.\n' +
+    '- When both "domain" and "predicted_domain" are null, set "non_learning_hint" to the best label: ' +
+    'comedy (stand-up, sketches), entertainment (general), news, gaming, music, sports, or other.\n' +
+    '- When "predicted_domain" is non-null, set "non_learning_hint" to null.\n' +
+    '- If "domain" is non-null, set "predicted_domain" to the same string or null, and "non_learning_hint" to null.\n' +
+    '- If you are unsure for strict "domain" but the title is still plausibly professional learning, set "domain" to null and fill "predicted_domain" — the app will record when that line is on the user\'s allow list.\n' +
+    '- Ignore whether a line is in the allowed list when choosing labels; the extension applies that separately.';
 
   try {
     var raw = await chat(apiKey, model, [{ role: 'user', content: prompt }], true);
     var parsed = parseGroqJsonObject(raw);
     var d = parsed.domain;
     if (d == null || d === '' || String(d).toLowerCase() === 'null') {
+      var predOnly = parseOptionalCatalogLine(parsed.predicted_domain, catalog);
+      var predCanon0 = predOnly ? resolveAllowlistDomain(predOnly, allowlist) : null;
+      if (predCanon0) {
+        return {
+          track: true,
+          domain: predCanon0,
+          classifiedDomain: predOnly,
+          blockedByAllowlist: false,
+          notLearning: false,
+          predictedDomain: predOnly,
+          predictedAlreadyAllowed: true,
+          nonLearningHint: null
+        };
+      }
+      var hint0 = predOnly ? null : resolveNonLearningHint(parsed, titlePlain);
       return {
         track: false,
         domain: null,
         classifiedDomain: null,
         blockedByAllowlist: false,
-        notLearning: true
+        notLearning: true,
+        predictedDomain: predOnly,
+        predictedAlreadyAllowed: false,
+        nonLearningHint: hint0
       };
     }
     var resolved = resolveAllowlistDomain(String(d).trim(), catalog);
     if (!resolved) {
+      var predBad = parseOptionalCatalogLine(parsed.predicted_domain, catalog);
+      var predCanon1 = predBad ? resolveAllowlistDomain(predBad, allowlist) : null;
+      if (predCanon1) {
+        return {
+          track: true,
+          domain: predCanon1,
+          classifiedDomain: predBad,
+          blockedByAllowlist: false,
+          notLearning: false,
+          predictedDomain: predBad,
+          predictedAlreadyAllowed: true,
+          nonLearningHint: null
+        };
+      }
+      var hint1 = predBad ? null : resolveNonLearningHint(parsed, titlePlain);
       return {
         track: false,
         domain: null,
         classifiedDomain: null,
         blockedByAllowlist: false,
-        notLearning: true
+        notLearning: true,
+        predictedDomain: predBad,
+        predictedAlreadyAllowed: false,
+        nonLearningHint: hint1
       };
     }
     var allowedCanonical = resolveAllowlistDomain(resolved, allowlist);
     var track = !!allowedCanonical;
+    var predAligned = parseOptionalCatalogLine(parsed.predicted_domain, catalog);
+    if (!predAligned) predAligned = resolved;
+    var predAllowed2 = predAligned ? !!resolveAllowlistDomain(predAligned, allowlist) : false;
     return {
       track: track,
       domain: allowedCanonical || null,
       classifiedDomain: resolved,
       blockedByAllowlist: !!resolved && !track,
-      notLearning: false
+      notLearning: false,
+      predictedDomain: predAligned,
+      predictedAlreadyAllowed: predAllowed2,
+      nonLearningHint: null
     };
   } catch (e) {
     console.error('[Groq] classifyTrackAllowlist failed:', e.message);
@@ -265,6 +377,9 @@ export async function classifyTrackAllowlist(apiKey, title, url, model, allowlis
       classifiedDomain: null,
       blockedByAllowlist: false,
       notLearning: false,
+      predictedDomain: null,
+      predictedAlreadyAllowed: false,
+      nonLearningHint: null,
       classifyErrorFallback: true
     };
   }

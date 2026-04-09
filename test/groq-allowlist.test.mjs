@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveAllowlistDomain, buildClassificationCatalog, DOMAINS } from '../utils/groq.js';
+import {
+  resolveAllowlistDomain,
+  buildClassificationCatalog,
+  inferNonLearningHintFromTitle,
+  DOMAINS
+} from '../utils/groq.js';
 
 test('resolveAllowlistDomain exact and case-insensitive', function () {
   var list = ['Technology and Development Practices'];
@@ -48,4 +53,12 @@ test('buildClassificationCatalog includes all DOMAINS plus custom allowlist-only
   assert.ok(cat.length >= DOMAINS.length + 1);
   assert.ok(cat.includes('Technology and Development Practices'));
   assert.ok(cat.includes('Data & Visualization'));
+});
+
+test('inferNonLearningHintFromTitle detects stand-up comedy titles', function () {
+  assert.equal(
+    inferNonLearningHintFromTitle('Cheating - Stand Up Comedy ft. Anubhav Singh Bassi'),
+    'comedy'
+  );
+  assert.equal(inferNonLearningHintFromTitle('Stand-up special | Netflix'), 'comedy');
 });

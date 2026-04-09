@@ -201,6 +201,9 @@ async function handle(msg, sender) {
       classifiedDomain: out.classifiedDomain,
       blockedByAllowlist: !!out.blockedByAllowlist,
       notLearning: !!out.notLearning,
+      predictedDomain: out.predictedDomain || null,
+      predictedAlreadyAllowed: !!out.predictedAlreadyAllowed,
+      nonLearningHint: out.nonLearningHint || null,
       classifyErrorFallback: !!out.classifyErrorFallback
     };
   }

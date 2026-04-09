@@ -443,7 +443,10 @@
                 pageKey: key,
                 classifiedDomain: (resp && resp.classifiedDomain) || '',
                 blockedByAllowlist: !!(resp && resp.blockedByAllowlist),
-                notLearning: !!(resp && resp.notLearning)
+                notLearning: !!(resp && resp.notLearning),
+                predictedDomain: (resp && resp.predictedDomain) || '',
+                predictedAlreadyAllowed: !!(resp && resp.predictedAlreadyAllowed),
+                nonLearningHint: (resp && resp.nonLearningHint) || ''
               };
               console.log(
                 '[LT] Skipping — domain gate.',
@@ -559,6 +562,9 @@
           blockedByAllowlist: lastDomainGateInfo.blockedByAllowlist,
           notLearning: lastDomainGateInfo.notLearning,
           classifiedDomain: lastDomainGateInfo.classifiedDomain,
+          predictedDomain: lastDomainGateInfo.predictedDomain || '',
+          predictedAlreadyAllowed: !!lastDomainGateInfo.predictedAlreadyAllowed,
+          nonLearningHint: lastDomainGateInfo.nonLearningHint || '',
           videoTitle: getTitle()
         };
       }

@@ -953,6 +953,27 @@ function setSyncButton(count) {
   }
 }
 
+function nonLearningHintMessage(hint) {
+  switch (String(hint || '').toLowerCase()) {
+    case 'comedy':
+      return 'This looks like comedy or stand-up, not professional learning — time is not recorded.';
+    case 'entertainment':
+      return 'This looks like general entertainment or TV-style content, not professional learning — time is not recorded.';
+    case 'news':
+      return 'This looks like news or current affairs, not professional learning — time is not recorded.';
+    case 'gaming':
+      return 'This looks like gaming content, not professional learning — time is not recorded.';
+    case 'music':
+      return 'This looks like music or artist content, not professional learning — time is not recorded.';
+    case 'sports':
+      return 'This looks like sports or highlights, not professional learning — time is not recorded.';
+    case 'other':
+      return 'No professional learning domain matched this title — time is not recorded. Turn off the domain gate in Settings if you want to track everything.';
+    default:
+      return 'No professional learning domain matched this title — time is not recorded. You can add custom domains under Settings → Learning domain gate.';
+  }
+}
+
 function resetTrackingBarIdle() {
   var bar = document.getElementById('tracking-bar');
   if (bar) bar.classList.remove('active');
@@ -978,6 +999,7 @@ function updateDomainGateStrip(resp) {
   var btn = document.getElementById('domain-gate-add-btn');
   if (!strip || !textEl || !btn) return;
   strip.classList.remove('visible');
+  textEl.textContent = '';
   btn.style.display = 'none';
   btn.removeAttribute('data-domain');
   if (
@@ -990,19 +1012,31 @@ function updateDomainGateStrip(resp) {
     return;
   }
   var dg = resp.domainGate;
+  var addLabel = '';
+
   if (dg.blockedByAllowlist && dg.classifiedDomain) {
     textEl.textContent =
-      'Learning domain: "' +
+      'Groq matched "' +
       dg.classifiedDomain +
-      '" (not in your allowed list). Add it to start recording this and future matches.';
-    btn.style.display = 'inline-block';
-    btn.dataset.domain = dg.classifiedDomain;
-    strip.classList.add('visible');
+      '" — not in your allow list yet. Add it to record this video and similar titles.';
+    addLabel = dg.classifiedDomain;
   } else if (dg.notLearning) {
-    textEl.textContent =
-      'This video is not classified as learning for your domain list, so time is not recorded.';
-    strip.classList.add('visible');
+    if (dg.predictedDomain && !dg.predictedAlreadyAllowed) {
+      textEl.textContent =
+        'Not counted as strict learning. Suggested domain: "' +
+        dg.predictedDomain +
+        '". Add it to your allow list if you want this and similar videos to record.';
+      addLabel = dg.predictedDomain;
+    } else {
+      textEl.textContent = nonLearningHintMessage(dg.nonLearningHint);
+    }
   }
+
+  if (addLabel) {
+    btn.style.display = 'inline-block';
+    btn.dataset.domain = addLabel;
+  }
+  if (textEl.textContent) strip.classList.add('visible');
 }
 
 function updateTrackingBarFromStatus(resp) {
